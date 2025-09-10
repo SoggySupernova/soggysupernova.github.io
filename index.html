@@ -1,0 +1,438 @@
+<!DOCTYPE html><html><head>
+<title>Sign in with Google</title><style id="theme">
+html {
+--background-color: #080808;
+--button-color: #111;
+--text-color: #ccc;
+--icon-color: #ccc;
+--border-color: #222;
+--border-color-hovered: #777;
+--button-color-clicked: #181818;
+--button-glow-color: #ff4545,#00ff99,#006aff,#ff0095,#ff4545;
+--button-text-color: #ccc;
+}
+
+::selection {
+color: #ccc;
+background: #282828;
+}
+
+/*
+
+you can add extra css for a specific element
+
+put !important if it doesn't work
+
+here is an example
+
+#textbox {
+border-radius: 100px !important;
+}
+
+*/
+</style>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Signika:wght,GRAD@300..700,-30..0&display=swap');
+.title{
+font-family: "Signika", sans-serif;
+font-optical-sizing: auto;
+font-weight: 600;
+margin-left: 5px;
+color: var(--text-color)
+}
+body{
+font-family: "Signika", sans-serif;
+font-optical-sizing: auto;
+font-weight: 300;
+tab-size: 2;
+}
+button{
+font-family: inherit;
+background-color: var(--button-color);
+border: 1px solid var(--border-color);
+border-radius: 5px;
+color: var(--button-text-color);
+padding: 5px 5px;
+margin: 10px 1px;
+transition: all 0.25s;
+position: relative
+}
+@property --angle{
+syntax: "<angle>";
+initial-value: 0deg;
+inherits: false
+}
+button::after, button::before{
+content: '';
+position: absolute;
+height: 100%;
+width: 100%;
+background: #00000000;
+top: 50%;left:50%;translate: -50% -50%;z-index: -1;
+padding: 2.5px;
+border-radius:6px;
+background-image: conic-gradient(from var(--angle), var(--button-glow-color));
+animation: 3s spin linear infinite;
+opacity: 0;
+transition: opacity 0.25s
+}
+button:hover::after, button:hover::before{opacity: 1}
+button::before{
+filter: blur(1rem)
+}
+@keyframes spin{
+from{--angle:0deg;}
+to{--angle:360deg;}
+}
+button:hover{cursor:pointer}
+button:active{background-color:var(--button-color-clicked)}
+body{background-color: var(--background-color)}
+textarea{background-color:var(--background-color); color: var(--text-color);border-radius:7px; border-color: var(--border-color);outline: none;transition: border-color 0.15s}
+h1, a{color:#EEEEEE}
+h1 {position: relative; top: -16px}
+textarea:focus{
+border-color: var(--textbox-active-border-color);
+}
+#textbox{padding: 2px 5px; display:grid; margin-left: 5px;position:relative;top:-30px}
+#textbox::placeholder{color: var(--text-color);opacity:0.5}
+#dropdowncontent{
+display:none;
+position: absolute;
+bottom: 30px;
+background-color: var(--button-color);
+border: 1px solid #444;
+border-radius: 10px 10px 0px 0px;
+width: calc(100% - 20px);
+transform: translate(-5px, 2.5px);
+padding: 10px;}
+#dropdownbutton{
+position: relative}
+#dropdownbutton:hover{border-radius:0px 0px 5px 5px;border-color:#00000000 var(--border-color) var(--border-color) var(--border-color)}
+#dropdownbutton:hover div{
+display: block;border-color:var(--border-color) var(--border-color) #00000000 var(--border-color)}
+#scalablevectorgraphics{
+position: absolute;
+top: 9.6px;
+right: 11px}
+#scalablevectorgraphics svg{transition: all 0.25s;border-radius:5px;width:30px;height:30px;--coloriguess: var(--border-color);border: 1px solid var(--coloriguess);background-color: var(--button-color);stroke: var(--icon-color)}
+#scalablevectorgraphics svg:hover{
+cursor: pointer;stroke-width: 1.5px;--coloriguess: var(--border-color-hovered);border: 1px solid var(--coloriguess);}
+#dropdowncontent a {
+color: var(--button-text-color)
+}
+
+div#buttons{
+position: relative;
+top: -29px;
+left: 4px;
+}
+
+</style>
+</head>
+<body id="ds">
+<h1 class="title" id="titler">08/29/2025</h1>
+<div id="scalablevectorgraphics">
+
+<svg onclick="autoload()" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.13px" stroke-linecap="round" stroke-linejoin="round"><path d="M4 3h16a2 2 0 0 1 2 2v6a10 10 0 0 1-10 10A10 10 0 0 1 2 11V5a2 2 0 0 1 2-2z"></path><polyline points="8 10 12 14 16 10"></polyline></svg>
+
+<input type="file" id="themeFile" multiple="" style="display:none" onchange="openThemeFile()">
+<label for="themeFile"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.13px" stroke-linecap="round" stroke-linejoin="round"><path d="m14.622 17.897-10.68-2.913"></path><path d="M18.376 2.622a1 1 0 1 1 3.002 3.002L17.36 9.643a.5.5 0 0 0 0 .707l.944.944a2.41 2.41 0 0 1 0 3.408l-.944.944a.5.5 0 0 1-.707 0L8.354 7.348a.5.5 0 0 1 0-.707l.944-.944a2.41 2.41 0 0 1 3.408 0l.944.944a.5.5 0 0 0 .707 0z"></path><path d="M9 8c-1.804 2.71-3.97 3.46-6.583 3.948a.507.507 0 0 0-.302.819l7.32 8.883a1 1 0 0 0 1.185.204C12.735 20.405 16 16.792 16 15"></path></svg></label>
+
+<svg onclick="zap()" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.13px" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+
+<svg onclick="iframe()" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.13px" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+
+<svg onclick="viewsource()" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.13px" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" transform="matrix(1, 0, 0, 1, 0, 0)"></path>
+  <polyline points="13 2 13 9 20 9" transform="matrix(1, 0, 0, 1, 0, 0)"></polyline>
+  <g transform="matrix(1.15, 0, 0, 1.15, -1.611, -2.214)" style="">
+    <path d="M 6.935 15.524 C 6.935 15.524 8.719 11.957 11.84 11.957 C 14.961 11.957 16.745 15.524 16.745 15.524 C 16.745 15.524 14.961 19.091 11.84 19.091 C 8.719 19.091 6.935 15.524 6.935 15.524 Z"></path>
+    <circle cx="11.84" cy="15.524" r="1.338"></circle>
+  </g>
+</svg>
+
+<svg onclick="togglespellcheck()" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.13px" stroke-linecap="round" stroke-linejoin="round"><path d="m6 16 6-12 6 12"></path><path d="M8 12h8"></path><path d="M4 21c1.1 0 1.1-1 2.3-1s1.1 1 2.3 1c1.1 0 1.1-1 2.3-1 1.1 0 1.1 1 2.3 1 1.1 0 1.1-1 2.3-1 1.1 0 1.1 1 2.3 1 1.1 0 1.1-1 2.3-1"></path></svg>
+
+<svg onclick="swapwsecondary()" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.13px" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+
+<svg onclick="closetab()" id="closetabsvg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.13px" stroke-linecap="round" style="border-color: var(--coloriguess);"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+
+</div>
+<div><textarea id="textbox" style="width:calc(100% - 20px)" rows="32" placeholder="Enter text here..."></textarea></div>
+
+<div id="buttons">
+<input type="file" id="qwertyuiop" multiple="" style="display:none">
+<label for="qwertyuiop"><button id="label">Open File</button></label>
+<input type="file" id="newwindow" multiple="" style="display:none" onchange="newwindow()">
+<label for="newwindow"><button id="label2">Open in New Window</button></label>
+<input type="file" id="openimage" multiple="" style="display:none" onchange="openImage()">
+<label for="openimage"><button id="label3">Open Image</button></label>
+<button onclick="d()">Download</button>
+<button id="runjavascript">Run JavaScript</button>
+<button id="runhtml">Run HTML</button>
+<button onclick="openerify()">Encode</button>
+<button onclick="deopenerify()">Decode</button>
+<button onclick="toggleLivePalette()">Live Palette</button>
+<button onclick="restoreTheThing()">Restore the thing I guess</button>
+<button id="dropdownbutton">Bookmarklets
+<div id="dropdowncontent">
+<a href="javascript:prompt('',eval(prompt('')));void 0">Calculator</a><br><br>
+<a href="javascript:var n=prompt('Number of sides'); var circumradius=prompt('Circumradius'); var apothem=circumradius*Math.cos(Math.PI/n); var area=Math.pow(apothem,2)*n*Math.tan(Math.PI/n); prompt('',area);void 0">N-gon Area</a><br><br>
+<a href="javascript:var toLog = prompt(''); var base = prompt('Base','10'); prompt('',Math.log(toLog)/Math.log(base));void 0">Log Calculator</a><br><br>
+<a href="javascript:var x1 = Number(prompt('x1')); var y1 = Number(prompt('y1')); var x2 = Number(prompt('x2')); var y2 = Number(prompt('y2'));prompt('',((x1+x2)/2)+', '+((y1+y2)/2)); void 0">Find Midpoint</a><br><br>
+<a href="javascript:fetch('').then(r=%3Er.text()).then(r=%3EJSON.parse(r)).then(t=%3Ealert(`Location: ${t.location.name}, ${t.location.region}\nCondition: ${t.current.condition.text}\nTemperature: ${t.current.temp_f}\xB0F, feels like ${t.current.feelslike_f}\xB0F\nWind: ${t.current.wind_mph} mph ${t.current.wind_dir}\nHumidity: ${t.current.humidity}\x25\nPressure: ${t.current.pressure_in} in\nPrecipitation: ${t.current.precip_in} in\nCloud cover: ${t.current.cloud}\x25\nVisibility: ${t.current.vis_miles} mi\nUV Index: ${t.current.uv}`))">Current Weather</a><br>
+</div></button></div>
+<img src="">
+<script>
+if (!(localStorage.getItem("theme") == "null" || localStorage.getItem("theme") == "")){
+setTheme(localStorage.getItem("theme"));
+}
+var windowWidth = 276;
+var today = new Date();document.getElementById("titler").innerHTML = (String(today.getMonth() + 1).padStart(2, '0') + '/' + String(today.getDate()).padStart(2, '0') + '/' + today.getFullYear());
+window.onkeydown = function(e) { if (e.keyCode==9 && !e.shiftKey && document.activeElement==document.querySelector("#textbox")){e.stopPropagation();e.preventDefault();document.execCommand("insertText", false, "\u0009")}};
+function saveConveyor(newSave){
+  if (newSave != localStorage.getItem("save")) {
+    localStorage.setItem('save10',localStorage.getItem('save9'));
+    localStorage.setItem('save9',localStorage.getItem('save8'));
+    localStorage.setItem('save8',localStorage.getItem('save7'));
+    localStorage.setItem('save7',localStorage.getItem('save6'));
+    localStorage.setItem('save6',localStorage.getItem('save5'));
+    localStorage.setItem('save5',localStorage.getItem('save4'));
+    localStorage.setItem('save4',localStorage.getItem('save3'));
+    localStorage.setItem('save3',localStorage.getItem('save2'));
+    localStorage.setItem('save2',localStorage.getItem('save'));
+    localStorage.setItem('save',newSave)
+  }
+}
+function autoload(){
+  if(document.querySelector('#textbox').value==''){
+    document.getElementById("textbox").value = localStorage.getItem('save')
+  }else{
+    saveConveyor(document.getElementById("textbox").value)
+  }
+};
+function auatosave(){
+
+if(document.querySelector('#textbox').value==''){}else{autoload()}
+
+};
+
+setInterval(auatosave,10000);
+//Encode and decode helper functions
+var text;
+var code1 = '<!DOCTYPE html>\r\n<html>\r\n<body>\r\n<script>\r\nvar wi = window.open(\'https:\/\/example.com\/\', \'_blank\', \'width='+windowWidth+',height=150,top=0, left=0\');\r\nwi.document.write(\'';
+var code2 = '\');window.close();\r\n<\/script>\r\n<\/body>\r\n<\/html>';
+function removeLast(slo, ri){
+  slo = slo.split(ri);
+  return slo.slice(0,-1).join(ri) + slo.pop()
+}
+function openerify(){
+  text = document.getElementById('textbox').value;
+  text = text.replaceAll('\\','\\\\');
+  text = text.replaceAll('\"','\\\"');
+  text = text.replaceAll('\'','\\\'');
+  text = text.replaceAll('\r','\\r');
+  text = text.replaceAll('\n','\\n');
+  text = text.replaceAll('<','\\<');
+  text = text.replaceAll('>','\\>');
+  text = code1+text+code2;
+  document.getElementById('textbox').value = text;
+}
+function deopenerify(){
+  text = document.getElementById('textbox').value;
+  text = text.slice(152,text.length-44);
+  text = removeLast(text,code2);
+  text =  (text + '').replace(/\\(.?)/g, function (s, n1) {
+    switch (n1) {
+      case '\\':
+        return '\\'
+      case '0':
+        return '\u0000'
+      case '':
+        return ''
+      case 'n':
+        return '\n'
+      case 'r':
+        return '\r'
+      default:
+        return n1
+    }
+  });
+  document.getElementById('textbox').value = text;
+}
+// File upload
+document.getElementById("label").onmouseup = function(){document.getElementById("qwertyuiop").click()};
+document.getElementById("label2").onmouseup = function(){document.getElementById("newwindow").click()};
+document.getElementById("label3").onmouseup = function(){document.getElementById("openimage").click()};
+function readFileAndUpdateTextbox(file) {
+    const reader = new FileReader();
+    reader.readAsText(file);
+    reader.onloadend = () => {
+        document.getElementById("textbox").value = reader.result;
+document.getElementById("qwertyuiop").value = "";
+       if(file.name.endsWith(".theme")){
+  setTheme(document.querySelector("#textbox").value)
+}
+    };
+}
+function handleFileDrop(event) {
+    event.stopPropagation();
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+
+    const file = event.dataTransfer.files[0];
+    if (file) {
+        readFileAndUpdateTextbox(file);
+    }
+}
+function handleFileInputChange(event) {
+    const file = event.target.files[0];
+    if (file) {
+        readFileAndUpdateTextbox(file);
+    }
+}
+const dropArea = document.querySelector('body');
+dropArea.addEventListener('dragover', (event) => {
+    event.stopPropagation();
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+});
+dropArea.addEventListener('drop', handleFileDrop);
+const fileInput = document.getElementById('qwertyuiop');
+fileInput.addEventListener('change', handleFileInputChange);
+//open in new window
+function newwindow(){
+  const f2 = document.querySelector('#newwindow').files[0];
+  const r2 = new FileReader();
+  r2.addEventListener("loadend", () => {
+    var newnotepadwindow = window.open('asdf','','width='+windowWidth+',height=150');
+    newnotepadwindow.document.write('\<!DOCTYPE html\>\<html\>'+document.querySelector("html").innerHTML+'\</html\>');
+    newnotepadwindow.document.querySelector('#textbox').value = r2.result;
+    document.querySelector('#newwindow').value='';
+  }, false);
+  if (f2) {
+    r2.readAsText(f2);
+  }
+}
+//Open image
+function openImage(){
+  const p3 = document.querySelector('img');
+  const f3 = document.querySelector('#openimage').files[0];
+  const r3 = new FileReader();
+  r3.addEventListener("load", () => {
+    p3.src = r3.result;
+  }, false);
+  if (f3) {
+    r3.readAsDataURL(f3);
+  }
+}
+//Downloading
+function downloadFile(fileName, contents) {
+var element = document.createElement('a');
+element.setAttribute('href','data:text/plain;charset=utf-8,'+encodeURIComponent(contents));
+element.setAttribute('download', fileName);
+document.body.appendChild(element);
+element.click();
+document.body.removeChild(element);
+}
+function d(){
+downloadFile('n.html',document.getElementById("textbox").value);
+}
+//Buttons
+document.getElementById("runjavascript").onclick = function() {
+    try {
+        eval(decodeURIComponent(document.getElementById("textbox").value));void 0;
+    } catch ({ name, message }) {
+        alert(name+': '+message);
+    }
+}
+document.getElementById("runhtml").onclick = function() {
+    window.open('asdf','','width='+windowWidth+',height=150').document.write(document.getElementById("textbox").value);
+    void 0;
+}
+
+function swapwsecondary(){
+var tempOldValue = document.querySelector("#textbox").value;
+document.querySelector("#textbox").value = localStorage.getItem("secondaryTextbox");
+localStorage.setItem('secondaryTextbox',tempOldValue);
+}
+function viewsource(){document.querySelector('#textbox').value='\<!DOCTYPE html\>'+document.querySelector("html").outerHTML};
+var caniclosethetab = false;
+function closetab(){caniclosethetab=!caniclosethetab;var closeTabButtonStyle = document.querySelector('#closetabsvg').style;if(caniclosethetab){closeTabButtonStyle.setProperty('border-color','#0f0');closeTabButtonStyle.setProperty('stroke','#0f0')}else{closeTabButtonStyle.setProperty('border-color','var(--coloriguess)');closeTabButtonStyle.setProperty('stroke','var(--icon-color)')}}
+function saveOnExit(){
+  if(caniclosethetab){event.preventDefault()};
+  if(document.querySelector('#textbox').value!=''){
+    saveConveyor(document.getElementById("textbox").value)
+  };
+};
+addEventListener('beforeunload',saveOnExit);
+function zap(){
+saveConveyor(document.querySelector('#textbox').value);
+removeEventListener('beforeunload',saveOnExit);
+window.close()
+};
+function iframe(){
+var frameWindow = window.open('asdf','_blank','width='+windowWidth+',height=150,top=0,left=0');
+frameWindow.document.write('\<iframe frameBorder=0 src=\'');
+frameWindow.document.write('https://'+frameWindow.prompt('Website').replace('http://','').replace('https://',''));
+frameWindow.document.write('\' width=\'100%\' height=\'100%\'\>\</iframe\>');
+frameWindow.document.write('\<style\>*{margin:0;padding:0}\</style\>');
+}
+
+function setTheme(t){
+  var element = document.getElementById("theme");
+  element.parentNode.removeChild(element);
+  let newElement = document.createElement('style');
+  newElement.id = "theme";
+  newElement.innerHTML = '\n' + t + '\n';
+  document.head.insertBefore(newElement,document.querySelector("title").nextSibling);
+  localStorage.setItem("theme",t);
+}
+
+function openThemeFile(){
+  const f2 = document.querySelector('#themeFile').files[0];
+  const r2 = new FileReader();
+  r2.addEventListener("loadend", () => {
+    setTheme(r2.result);
+  }, false);
+  if (f2) {
+    r2.readAsText(f2);
+  }
+}
+
+var livePalette = false;
+
+function toggleLivePalette(){
+livePalette = !livePalette;
+}
+
+document.querySelector("#textbox").addEventListener("keyup",() => {if(livePalette){
+  setTheme(document.querySelector("#textbox").value)
+}}, false)
+
+function tswe(n){
+  var s = String(localStorage.getItem('save'+n)).replaceAll('\n',' ');
+  if (s.length > 32){
+    return s.substring(0,29) + '...'
+  }else{
+    return s
+  }
+}
+
+function restoreTheThing(){
+var string = "How far back?\n1 (type blank): "+tswe("")+"\n2:"+tswe("2")+"\n3:"+tswe("3")+"\n4:"+tswe("4");
+document.querySelector("#textbox").value = localStorage.getItem('save'+prompt(string))
+}
+
+function togglespellcheck(){
+if (document.querySelector("#spellcheckstyle")){
+  var element = document.getElementById("spellcheckstyle");element.parentNode.removeChild(element);
+}else{
+  let newElement = document.createElement('style');
+  newElement.id = "spellcheckstyle";
+  newElement.innerHTML = "::spelling-error{text-decoration:none}";
+  document.head.insertBefore(newElement,document.querySelector("#theme").nextSibling);
+}
+}
+
+</script></body></html>

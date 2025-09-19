@@ -8,29 +8,43 @@
   </head>
   <body>
     <header>
+			<nav>
+		  	<a href="/notepad">Home</a>
+		  	<a href="/notepad/docs">Docs</a>
+		  	<a href="/notepad/guide">Guide</a>
+		  	<a href="https://github.com/SoggySupernova/Notepad">GitHub</a>
+			</nav>
       <h1>
         Notepad Docs
       </h1>
-	<nav>
-  			<a href="/notepad">Home</a>
-  			<a href="/notepad/docs">Docs</a>
-  			<a href="/notepad/guide">Guide</a>
-  			<a href="https://github.com/SoggySupernova/Notepad">GitHub</a>
-	</nav>
     </header>
     <main>
       <details>
         <summary>Contents</summary>
-        <p><b>Concepts</b></p>
-        <ul>
-          <li>The Save Conveyor</li>
-        </ul>
+        <ul id="contents">
+        </ul>					
       </details>
+			<section>
+				<h3 class="listItem" id="openingfiles">Opening Files</h3>
+				<p>There are three different buttons to open files.<p>
+					<h4>Open File</h4>
+					<p>Opens the file in the normal textbox.</p>
+					<p class="notice">Some Unicode characters may be removed or replaced. This mode is not recommended for opening and editing binary files.</p>
+					<h4>Open in New Window</h4>
+					<p>Opens the file in a new Notepad window.</p>
+			</section>
     </main>
     <footer>
       
         Made with Simple.css
       
     </footer>
+		<script>
+			const elements = document.getElementsByClassName('listItem');
+			for (let i = 0; i < elements.length; i++) {	
+  			const element = elements[i];
+  			document.querySelector('#contents').innerHTML += `<a href="#${element.getAttribute('id')}">${element.textContent}</a>`;
+			}
+	</script>
   </body>
 </html>

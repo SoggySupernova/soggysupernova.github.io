@@ -7,15 +7,16 @@
 	</style>
   </head>
   <body>
+		<a href="/notepad/docs" style="position:fixed;top:8px;right:10px;">Top</a>
     <header>
 			<nav>
 		  	<a href="/notepad">Home</a>
 		  	<a href="/notepad/docs">Docs</a>
 		  	<a href="/notepad/guide">Guide</a>
-		  	<a href="https://github.com/SoggySupernova/Notepad">GitHub</a>
+		  	<a href="https://github.com/SoggySupernova/Notepad" target="_blank">GitHub</a>
 			</nav>
       <h1>
-        Notepad Docs
+        Notepad Docs (Under Construction)
       </h1>
     </header>
     <main>
@@ -24,6 +25,10 @@
         <ul id="contents">
         </ul>					
       </details>
+			<section>
+				<h3 class="listItem" id="uilayout">UI & Layout</h3>
+				<p>There are two sets of buttons in Notepad. The buttons below the textbox are mostly for opening, editing, and running files. The top bar of icons are for niche, miscellaneous things you may need to do at some point. I also put some medium-useful buttons here simply because it is easier to reach when you first open Notepad.</p>
+			</section>
 			<section>
 				<h3 class="listItem" id="openingfiles">Opening, Editing, and Running Files</h3>
 				<p>There are three different buttons to open files.<p>
@@ -35,11 +40,23 @@
 					<h4>Open Image</h4>
 					<p>Opens an image below the textbox. In the future, there will be an actual UI for this and there may be image editing functionalities, but it is not a priority right now.</p>
 					<h4>Download</h4>
-					<p>Pretty self-explanatory.</p>
+					<p>Downloads the current contents of the textbox. See the above note about binary files.</p>
 					<h4>Run JavaScript</h4>
 					<p>Interprets the textbox contents as JavaScript and runs it on the page, alerting the user if an error occurs. Note that it is URL-decoded automatically, so use %25 if you need a percent symbol. This may change in the future.</p>
 					<h4>Run HTML</h4>
-					<p>Interprets the textbox contents as HTML (or XML, or SVG,
+					<p>Interprets the textbox contents as HTML (or SVG) and opens it in a new window.</p>
+					<h4>Live Palette</h4>
+					<p>Interprets textbox contents as CSS and updates the notepad theme to match. Toggles real-time updating on and off. Useful for making themes.
+					<details>
+						<summary>Removed features</summary>
+						<h4>Encode and Decode</h4>
+						<p>In the previous opener system, these buttons were for generating the opener and extracting the original file, respectively. This is no longer necessary with/for the new opener system.</p>
+						<h4>Download Zapped File</h4>
+						<p>The <a href="">Zap button</a> used to save the zapped file in a special place that could only be restored by using this button. Now it just saves the file in the <a href="">save conveyor</a>.</p>
+					</details>
+			</section>
+			<section>
+				<h3 class="listItem" id="topbuttons">Top Buttons</h3>
 			</section>
     </main>
     <footer>
@@ -48,10 +65,11 @@
       
     </footer>
 		<script>
+			// Automatically generate table of contents
 			const elements = document.getElementsByClassName('listItem');
 			for (let i = 0; i < elements.length; i++) {	
   			const element = elements[i];
-  			document.querySelector('#contents').innerHTML += `<a href="#${element.getAttribute('id')}">${element.textContent}</a>`;
+  			document.querySelector('#contents').innerHTML += `<li><a href="#${element.getAttribute('id')}">${element.textContent}</a></li>`;
 			}
 	</script>
   </body>

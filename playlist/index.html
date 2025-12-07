@@ -1,1 +1,16 @@
-
+<html>
+  <script>
+    var videoLinks = ["https://www.youtube.com/watch?v=nDqP7kcr-sc", "https://www.youtube.com/watch?v=6KPbFgPK0Bw", "https://www.youtube.com/watch?v=zqY1ZE8pr1w"];
+    var currentTab;
+    var i = 0;
+    function a(){
+      currentTab.close();
+      currentTab = window.open(videoLinks[i]);
+      i++;
+      if (i > 2){
+        i = 0
+      }
+    }
+    setInterval(a,10000);
+  </script>
+</html>

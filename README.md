@@ -1,2 +1,2 @@
 # soggysupernova.github.io
-Notepad website
+Website for Notepad and AutoLongRedditStories documentation

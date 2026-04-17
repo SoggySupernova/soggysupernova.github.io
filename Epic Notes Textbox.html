@@ -1,0 +1,113 @@
+<html>
+<head>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&amp;family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&amp;display=swap" rel="stylesheet">
+<style>
+body {
+background-color: #11111b;
+}
+textarea {
+background-color: #181825;
+color: #cdd6f4;
+border-color: #715c9c;
+border-radius: 10px;
+corner-shape: squircle;
+font-family: "DM Sans", sans-serif;
+}
+textarea::spelling-error {
+text-decoration: underline wavy #f38ba8 0.5px;
+}
+textarea:focus {
+outline: none;
+}
+::selection {
+color: #fdb;
+background: #313244;
+}
+</style>
+</head>
+<body>
+<textarea style="width:100%;height:100%"></textarea>
+<script>
+
+function rl(originalString, find, replacement) {
+  const lastIndex = originalString.lastIndexOf(find);
+
+  if (lastIndex >= 0) {
+    return (
+      originalString.substring(0, lastIndex) +
+      replacement +
+      originalString.substring(lastIndex + find.length)
+    );
+  }
+  return originalString; // If 'find' is not found, return the original string
+}
+
+function replaceLastOccurrenceBeforeCursor(textarea, searchString, replacementString) {
+  const cursorPosition = textarea.selectionStart;
+  const fullText = textarea.value;
+  const textBeforeCursor = fullText.substring(0, cursorPosition);
+
+  // Find the last index of the search string in the text *before* the cursor
+  const lastIndex = textBeforeCursor.lastIndexOf(searchString);
+
+  if (lastIndex >= 0) {
+    // Calculate the new cursor position after replacement
+    const replacementLengthDifference = replacementString.length - searchString.length;
+    const newCursorPosition = cursorPosition + replacementLengthDifference;
+
+    // Reconstruct the full text
+    textarea.value =
+      fullText.substring(0, lastIndex) +
+      replacementString +
+      fullText.substring(lastIndex + searchString.length);
+
+    // Restore the cursor position
+    textarea.selectionStart = newCursorPosition;
+    textarea.selectionEnd = newCursorPosition;
+  }
+}
+
+
+var t = document.querySelector("textarea");
+
+t.value = (localStorage.getItem("notesbox") || "- ");
+var c = localStorage.getItem("tabness");
+window.onkeydown = function(e){
+	function tab(){
+    var originalCursorPosition = t.selectionStart;
+		document.execCommand("insertText", false, "\u0009- ");
+		t.value = t.value.replaceAll("- \u0009- ","\u0009- ");
+    t.selectionStart = originalCursorPosition + 1;
+    t.selectionEnd = originalCursorPosition + 1;
+		c++;
+	}
+	function untab(){
+    replaceLastOccurrenceBeforeCursor(t, "\u0009- ", "- ")
+		c--;
+	}
+	function enter(){
+				document.execCommand("insertText", false, "\n"+"\u0009".repeat(c)+"- ");
+	}
+	if (e.keyCode == 9) {
+		e.stopPropagation();
+		e.preventDefault();
+		if (e.shiftKey){
+			untab()
+		} else {
+			tab()
+		}
+	}
+  if (e.keyCode == 13) {
+		e.stopPropagation();
+		e.preventDefault();
+		enter()
+	}
+}
+
+
+setInterval(() => {localStorage.setItem("notesbox",t.value);localStorage.setItem("tabness",c)},500)
+</script>
+</body>
+</html>

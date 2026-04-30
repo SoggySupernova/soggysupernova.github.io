@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wheeling Book Dashboard</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500&display=swap');
+
+  :root {
+    --ink: #1a1612;
+    --paper: #f5f0e8;
+    --aged: #e8dfc8;
+    --rust: #b84a2e;
+    --steel: #4a6b7c;
+    --muted: #8a7f72;
+    --rule: #c8bfae;
+    --done: #3a6b45;
+    --draft: #7a5c2a;
+    --stub: #8a7f72;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-weight: 300;
+    min-height: 100vh;
+    padding: 2rem;
+    background-image: 
+      repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 27px,
+        rgba(180,168,148,0.25) 27px,
+        rgba(180,168,148,0.25) 28px
+      );
+  }
+
+  .masthead {
+    border-top: 3px double var(--ink);
+    border-bottom: 3px double var(--ink);
+    padding: 1.2rem 0;
+    margin-bottom: 2rem;
+    display: flex;
+    align-items: baseline;
+    gap: 1.5rem;
+  }
+
+  .masthead h1 {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.6rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+
+  .masthead .subtitle {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+
+  .datestamp {
+    margin-left: auto;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+
+  .card {
+    background: rgba(255,255,255,0.45);
+    border: 1px solid var(--rule);
+    padding: 1.25rem 1.4rem;
+  }
+
+  .card-wide { grid-column: 1 / -1; }
+
+  .card-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--muted);
+    margin-bottom: 0.9rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  /* Chapter list */
+  .chapter-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--aged);
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .chapter-row:last-child { border-bottom: none; }
+  .chapter-row:hover { background: rgba(74,107,124,0.06); margin: 0 -0.5rem; padding-left: 0.5rem; padding-right: 0.5rem; }
+
+  .ch-num {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.65rem;
+    color: var(--muted);
+    width: 1.8rem;
+    flex-shrink: 0;
+  }
+
+  .ch-name {
+    font-family: 'Playfair Display', serif;
+    font-size: 0.9rem;
+    font-style: italic;
+    flex: 1;
+  }
+
+  .ch-status {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 0.2rem 0.5rem;
+    border: 1px solid currentColor;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .status-done    { color: var(--done); }
+  .status-draft   { color: var(--draft); }
+  .status-stub    { color: var(--stub); }
+  .status-untouched { color: var(--rule); border-color: var(--rule); }
+
+  .ch-note {
+    font-size: 0.72rem;
+    color: var(--rust);
+    font-style: italic;
+    margin-left: 2.55rem;
+    padding-bottom: 0.3rem;
+    display: none;
+  }
+  .chapter-row.has-note + .ch-note { display: block; }
+
+  /* Streak tracker */
+  .streak-big {
+    font-family: 'Playfair Display', serif;
+    font-size: 3.5rem;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--rust);
+  }
+
+  .streak-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-top: 0.3rem;
+    margin-bottom: 1.2rem;
+  }
+
+  .streak-sub {
+    font-size: 0.78rem;
+    color: var(--muted);
+    margin-bottom: 0.25rem;
+  }
+
+  .best-streak {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--steel);
+  }
+
+  /* Calendar dots */
+  .cal-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 4px;
+    margin-top: 0.5rem;
+  }
+
+  .cal-day-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.55rem;
+    text-transform: uppercase;
+    color: var(--muted);
+    text-align: center;
+    padding-bottom: 4px;
+  }
+
+  .cal-dot {
+    aspect-ratio: 1;
+    border-radius: 2px;
+    background: var(--aged);
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+    position: relative;
+  }
+  .cal-dot:hover { transform: scale(1.15); }
+  .cal-dot.wrote { background: var(--steel); }
+  .cal-dot.today { outline: 2px solid var(--rust); outline-offset: 1px; }
+  .cal-dot.future { opacity: 0.35; cursor: default; }
+
+  .cal-dot .tooltip {
+    display: none;
+    position: absolute;
+    bottom: 130%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--ink);
+    color: var(--paper);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.6rem;
+    padding: 3px 6px;
+    white-space: nowrap;
+    z-index: 10;
+    pointer-events: none;
+  }
+  .cal-dot:hover .tooltip { display: block; }
+
+  /* Log session */
+  .log-area {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .log-area textarea {
+    background: transparent;
+    border: 1px solid var(--rule);
+    border-radius: 0;
+    padding: 0.6rem 0.75rem;
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 0.8rem;
+    color: var(--ink);
+    resize: vertical;
+    min-height: 60px;
+    width: 100%;
+  }
+  .log-area textarea::placeholder { color: var(--muted); font-style: italic; }
+  .log-area textarea:focus { outline: 1px solid var(--steel); border-color: var(--steel); }
+
+  .log-btn {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    background: var(--ink);
+    color: var(--paper);
+    border: none;
+    padding: 0.55rem 1.2rem;
+    cursor: pointer;
+    align-self: flex-start;
+    transition: background 0.15s;
+  }
+  .log-btn:hover { background: var(--rust); }
+  .log-btn:active { transform: translateY(1px); }
+
+  .log-confirm {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--done);
+    display: none;
+  }
+
+  /* Stalled warning */
+  .stalled-banner {
+    background: rgba(184,74,46,0.08);
+    border: 1px solid var(--rust);
+    border-left: 3px solid var(--rust);
+    padding: 0.6rem 0.9rem;
+    font-size: 0.78rem;
+    color: var(--rust);
+    font-family: 'IBM Plex Mono', monospace;
+    display: none;
+    margin-bottom: 1.5rem;
+    max-width: 900px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  /* Log history */
+  .log-history {
+    max-height: 120px;
+    overflow-y: auto;
+    margin-top: 0.5rem;
+  }
+
+  .log-entry {
+    padding: 0.35rem 0;
+    border-bottom: 1px solid var(--aged);
+    font-size: 0.75rem;
+  }
+  .log-entry:last-child { border-bottom: none; }
+
+  .log-entry .log-date {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.65rem;
+    color: var(--muted);
+    margin-right: 0.5rem;
+  }
+
+  /* Status cycle selector */
+  .status-cycle { user-select: none; }
+
+  /* Unresolved flags */
+  .flags-list {
+    list-style: none;
+  }
+  .flags-list li {
+    padding: 0.4rem 0;
+    border-bottom: 1px solid var(--aged);
+    font-size: 0.8rem;
+    display: flex;
+    gap: 0.5rem;
+    align-items: baseline;
+  }
+  .flags-list li:last-child { border-bottom: none; }
+  .flag-ch {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.65rem;
+    color: var(--rust);
+    flex-shrink: 0;
+    width: 2.5rem;
+  }
+
+  @media (max-width: 600px) {
+    .grid { grid-template-columns: 1fr; }
+    .card-wide { grid-column: 1; }
+    .masthead { flex-wrap: wrap; }
+  }
+</style>
+</head>
+<body>
+
+<div class="stalled-banner" id="stalledBanner">
+  ⚠ No session logged in 3+ days. Time to sit down.
+</div>
+
+<div style="max-width:900px;margin:0 auto;">
+  <div class="masthead">
+    <div>
+      <h1>Wheeling &amp; Heritage</h1>
+      <div class="subtitle">National Heritage Area · Book Project Dashboard</div>
+    </div>
+    <div class="datestamp" id="datestamp"></div>
+  </div>
+</div>
+
+<div class="grid" style="max-width:900px;margin:0 auto;">
+
+  <!-- Chapters -->
+  <div class="card card-wide">
+    <div class="card-label">Chapter Status — click status badge to cycle</div>
+
+    <div class="chapter-row" data-ch="0" data-status="stub">
+      <span class="ch-num" style="font-size:0.55rem;color:var(--muted);">Intro</span>
+      <span class="ch-name">Introduction</span>
+      <span class="ch-status status-stub status-cycle" data-ch="0">Stub</span>
+    </div>
+
+    <div class="chapter-row" data-ch="1" data-status="draft">
+      <span class="ch-num">Ch.1</span>
+      <span class="ch-name">Gateway</span>
+      <span class="ch-status status-draft status-cycle" data-ch="1">Draft</span>
+    </div>
+
+    <div class="chapter-row has-note" data-ch="2" data-status="draft">
+      <span class="ch-num">Ch.2</span>
+      <span class="ch-name">Museum</span>
+      <span class="ch-status status-draft status-cycle" data-ch="2">Draft</span>
+    </div>
+    <div class="ch-note">Open question: children's engagement &amp; "tourist gaze upon ourselves"</div>
+
+    <div class="chapter-row" data-ch="3" data-status="stub">
+      <span class="ch-num">Ch.3</span>
+      <span class="ch-name">Riverfront</span>
+      <span class="ch-status status-stub status-cycle" data-ch="3">Stub</span>
+    </div>
+
+    <div class="chapter-row" data-ch="4" data-status="stub">
+      <span class="ch-num">Ch.4</span>
+      <span class="ch-name">Victoriana</span>
+      <span class="ch-status status-stub status-cycle" data-ch="4">Stub</span>
+    </div>
+
+    <div class="chapter-row has-note" data-ch="5" data-status="stub">
+      <span class="ch-num">Ch.5</span>
+      <span class="ch-name">Island</span>
+      <span class="ch-status status-stub status-cycle" data-ch="5">Stub</span>
+    </div>
+    <div class="ch-note">Unresolved: where does civic engagement fit in this chapter?</div>
+
+    <div class="chapter-row" data-ch="6" data-status="stub">
+      <span class="ch-num">Ch.6</span>
+      <span class="ch-name">Retreat</span>
+      <span class="ch-status status-stub status-cycle" data-ch="6">Stub</span>
+    </div>
+
+    <div class="chapter-row" data-ch="7" data-status="stub">
+      <span class="ch-num">Ch.7</span>
+      <span class="ch-name">Market</span>
+      <span class="ch-status status-stub status-cycle" data-ch="7">Stub</span>
+    </div>
+
+    <div class="chapter-row" data-ch="8" data-status="stub">
+      <span class="ch-num">Ch.8</span>
+      <span class="ch-name">Departure</span>
+      <span class="ch-status status-stub status-cycle" data-ch="8">Stub</span>
+    </div>
+  </div>
+
+  <!-- Streak -->
+  <div class="card">
+    <div class="card-label">Writing Streak</div>
+    <div class="streak-big" id="streakCount">0</div>
+    <div class="streak-label">consecutive days</div>
+    <div class="streak-sub">Best streak</div>
+    <div class="best-streak" id="bestStreak">0 days</div>
+    <div style="margin-top:1rem; font-size:0.75rem; color:var(--muted); font-style:italic;" id="lastSessionNote">No sessions logged yet.</div>
+  </div>
+
+  <!-- Log session -->
+  <div class="card">
+    <div class="card-label">Log Today's Session</div>
+    <div class="log-area">
+      <textarea id="sessionNote" placeholder="What did you work on? (optional — even a sentence helps)"></textarea>
+      <button class="log-btn" onclick="logSession()">Log Session</button>
+      <div class="log-confirm" id="logConfirm">✓ Session recorded.</div>
+    </div>
+  </div>
+
+  <!-- Calendar -->
+  <div class="card card-wide">
+    <div class="card-label">This Month — click any past day to toggle</div>
+    <div class="cal-grid" id="calGrid"></div>
+  </div>
+
+  <!-- Log history -->
+  <div class="card card-wide">
+    <div class="card-label">Recent Session Notes</div>
+    <div class="log-history" id="logHistory">
+      <div style="font-size:0.75rem;color:var(--muted);font-style:italic;">No notes yet.</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // ── State ────────────────────────────────────────────────────────────────
+  const STORAGE_KEY = 'wheeling_dashboard_v1';
+
+  function loadState() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch(e) {}
+    return {
+      sessions: {},      // "YYYY-MM-DD": "note text"
+      chapterStatus: {   // ch num -> status string
+        0: 'stub',
+        1: 'draft', 2: 'draft',
+        3: 'stub', 4: 'stub', 5: 'stub',
+        6: 'stub', 7: 'stub', 8: 'stub'
+      },
+      notes: {}
+    };
+  }
+
+  function saveState(state) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }
+
+  let state = loadState();
+
+  // ── Date helpers ─────────────────────────────────────────────────────────
+  function today() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+
+  function formatDisplay(dateStr) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const dt = new Date(y, m-1, d);
+    return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+
+  // ── Streak calculation ────────────────────────────────────────────────────
+  function calcStreak() {
+    const dates = Object.keys(state.sessions).sort();
+    if (!dates.length) return { current: 0, best: 0 };
+
+    const todayStr = today();
+    let current = 0;
+    let best = 0;
+    let run = 0;
+    let prev = null;
+
+    for (const d of dates) {
+      if (!prev) { run = 1; }
+      else {
+        const gap = (new Date(d) - new Date(prev)) / 86400000;
+        run = gap === 1 ? run + 1 : 1;
+      }
+      best = Math.max(best, run);
+      prev = d;
+    }
+
+    // Current streak: walk backward from today
+    const lastDate = dates[dates.length - 1];
+    const gapFromToday = (new Date(todayStr) - new Date(lastDate)) / 86400000;
+    if (gapFromToday <= 1) {
+      current = 0;
+      let check = lastDate;
+      while (state.sessions[check]) {
+        current++;
+        const dt = new Date(check);
+        dt.setDate(dt.getDate() - 1);
+        check = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+      }
+    }
+
+    return { current, best };
+  }
+
+  // ── Stalled check ─────────────────────────────────────────────────────────
+  function checkStalled() {
+    const dates = Object.keys(state.sessions).sort();
+    if (!dates.length) return;
+    const lastDate = dates[dates.length - 1];
+    const gap = (new Date(today()) - new Date(lastDate)) / 86400000;
+    if (gap >= 3) {
+      document.getElementById('stalledBanner').style.display = 'block';
+    }
+  }
+
+  // ── Render streak ─────────────────────────────────────────────────────────
+  function renderStreak() {
+    const { current, best } = calcStreak();
+    document.getElementById('streakCount').textContent = current;
+    document.getElementById('bestStreak').textContent = `${best} day${best !== 1 ? 's' : ''}`;
+
+    const dates = Object.keys(state.sessions).sort();
+    const note = document.getElementById('lastSessionNote');
+    if (dates.length) {
+      const last = dates[dates.length - 1];
+      const lastNote = state.sessions[last];
+      note.textContent = `Last session: ${formatDisplay(last)}${lastNote ? ' — "' + lastNote.slice(0,60) + (lastNote.length > 60 ? '…' : '') + '"' : ''}`;
+    }
+  }
+
+  // ── Render calendar ───────────────────────────────────────────────────────
+  function renderCalendar() {
+    const grid = document.getElementById('calGrid');
+    grid.innerHTML = '';
+
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth();
+    const todayStr = today();
+    const daysInMonth = new Date(y, m+1, 0).getDate();
+    const firstDow = new Date(y, m, 1).getDay();
+
+    const dayLabels = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+    dayLabels.forEach(l => {
+      const el = document.createElement('div');
+      el.className = 'cal-day-label';
+      el.textContent = l;
+      grid.appendChild(el);
+    });
+
+    for (let i = 0; i < firstDow; i++) {
+      const blank = document.createElement('div');
+      grid.appendChild(blank);
+    }
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      const dot = document.createElement('div');
+      dot.className = 'cal-dot';
+      if (state.sessions[dateStr] !== undefined) dot.classList.add('wrote');
+      if (dateStr === todayStr) dot.classList.add('today');
+      if (dateStr > todayStr) dot.classList.add('future');
+
+      const tip = document.createElement('div');
+      tip.className = 'tooltip';
+      const note = state.sessions[dateStr];
+      tip.textContent = note ? `${formatDisplay(dateStr)}: ${note.slice(0,40)}` : formatDisplay(dateStr);
+      dot.appendChild(tip);
+
+      if (dateStr <= todayStr) {
+        dot.addEventListener('click', () => {
+          if (state.sessions[dateStr] !== undefined) {
+            delete state.sessions[dateStr];
+          } else {
+            state.sessions[dateStr] = '';
+          }
+          saveState(state);
+          renderCalendar();
+          renderStreak();
+          checkStalled();
+        });
+      }
+
+      grid.appendChild(dot);
+    }
+  }
+
+  // ── Log session ───────────────────────────────────────────────────────────
+  function logSession() {
+    const note = document.getElementById('sessionNote').value.trim();
+    const todayStr = today();
+    state.sessions[todayStr] = note;
+    saveState(state);
+
+    document.getElementById('sessionNote').value = '';
+    const confirm = document.getElementById('logConfirm');
+    confirm.style.display = 'block';
+    setTimeout(() => confirm.style.display = 'none', 2500);
+
+    renderStreak();
+    renderCalendar();
+    renderLogHistory();
+    document.getElementById('stalledBanner').style.display = 'none';
+  }
+
+  // ── Log history ───────────────────────────────────────────────────────────
+  function renderLogHistory() {
+    const container = document.getElementById('logHistory');
+    const entries = Object.entries(state.sessions)
+      .filter(([,v]) => v)
+      .sort((a,b) => b[0].localeCompare(a[0]))
+      .slice(0, 10);
+
+    if (!entries.length) {
+      container.innerHTML = '<div style="font-size:0.75rem;color:var(--muted);font-style:italic;">No notes yet.</div>';
+      return;
+    }
+
+    container.innerHTML = entries.map(([date, note]) =>
+      `<div class="log-entry"><span class="log-date">${formatDisplay(date)}</span>${note}</div>`
+    ).join('');
+  }
+
+  // ── Chapter status cycling ────────────────────────────────────────────────
+  const STATUS_CYCLE = ['untouched', 'stub', 'draft', 'done'];
+  const STATUS_LABELS = { untouched: 'Untouched', stub: 'Stub', draft: 'Draft', done: 'Done' };
+  const STATUS_CLASSES = { untouched: 'status-untouched', stub: 'status-stub', draft: 'status-draft', done: 'status-done' };
+
+  function renderChapterStatuses() {
+    document.querySelectorAll('.status-cycle').forEach(el => {
+      const ch = el.dataset.ch;
+      const st = state.chapterStatus[ch] || 'untouched';
+      el.className = `ch-status ${STATUS_CLASSES[st]} status-cycle`;
+      el.textContent = STATUS_LABELS[st];
+      el.dataset.ch = ch;
+    });
+  }
+
+  document.querySelectorAll('.status-cycle').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const ch = el.dataset.ch;
+      const current = state.chapterStatus[ch] || 'untouched';
+      const idx = STATUS_CYCLE.indexOf(current);
+      state.chapterStatus[ch] = STATUS_CYCLE[(idx + 1) % STATUS_CYCLE.length];
+      saveState(state);
+      renderChapterStatuses();
+    });
+  });
+
+  // ── Datestamp ─────────────────────────────────────────────────────────────
+  document.getElementById('datestamp').textContent =
+    new Date().toLocaleDateString('en-US', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+  renderChapterStatuses();
+  renderStreak();
+  renderCalendar();
+  renderLogHistory();
+  checkStalled();
+</script>
+</body>
+</html>

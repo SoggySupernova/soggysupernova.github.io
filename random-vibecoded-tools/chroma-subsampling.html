@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Chroma Subsampling Demo</title>
+<style>
+    body {
+        font-family: sans-serif;
+        background: #f5f5f5;
+        padding: 20px;
+    }
+    canvas {
+        border: 1px solid #999;
+        display: block;
+        margin-top: 10px;
+        max-width: 100%;
+    }
+    label, button {
+        display: block;
+        margin-top: 15px;
+    }
+</style>
+</head>
+<body>
+
+<input type="file" accept="image/*" id="imageInput">
+
+<label>
+    Chroma subsampling factor:
+    <input type="range" id="ratio" min="1" max="200" value="1">
+    <span id="ratioValue">1</span>
+</label>
+
+<label>
+    <input type="checkbox" id="bilinear">
+    Bilinear chroma interpolation
+</label>
+
+<button id="download">Download PNG</button>
+
+<canvas id="canvas"></canvas>
+
+<script>
+const input = document.getElementById("imageInput");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const ratioSlider = document.getElementById("ratio");
+const ratioValue = document.getElementById("ratioValue");
+const bilinearToggle = document.getElementById("bilinear");
+const downloadBtn = document.getElementById("download");
+
+let originalImageData = null;
+
+input.addEventListener("change", e => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const img = new Image();
+    img.onload = () => {
+        canvas.width = img.width;
+        canvas.height = img.height;
+        ctx.drawImage(img, 0, 0);
+        originalImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        applySubsampling();
+    };
+    img.src = URL.createObjectURL(file);
+});
+
+ratioSlider.addEventListener("input", () => {
+    ratioValue.textContent = ratioSlider.value;
+    if (originalImageData) applySubsampling();
+});
+
+bilinearToggle.addEventListener("change", () => {
+    if (originalImageData) applySubsampling();
+});
+
+downloadBtn.addEventListener("click", () => {
+    const a = document.createElement("a");
+    a.download = "chroma_subsampled.png";
+    a.href = canvas.toDataURL("image/png");
+    a.click();
+});
+
+function applySubsampling() {
+    const factor = parseInt(ratioSlider.value, 10);
+    const useBilinear = bilinearToggle.checked;
+    const w = originalImageData.width;
+    const h = originalImageData.height;
+    const src = originalImageData.data;
+    const dst = new Uint8ClampedArray(src.length);
+
+    const Y = new Float32Array(w * h);
+
+    const cw = Math.ceil(w / factor);
+    const ch = Math.ceil(h / factor);
+    const Cb = new Float32Array(cw * ch);
+    const Cr = new Float32Array(cw * ch);
+    const counts = new Uint32Array(cw * ch);
+
+    // RGB → YCbCr and accumulate chroma blocks
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            const i = (y * w + x) * 4;
+            const r = src[i];
+            const g = src[i + 1];
+            const b = src[i + 2];
+
+            const yy = 0.299*r + 0.587*g + 0.114*b;
+            const cb = -0.168736*r - 0.331264*g + 0.5*b + 128;
+            const cr =  0.5*r - 0.418688*g - 0.081312*b + 128;
+
+            Y[y * w + x] = yy;
+
+            const bx = Math.floor(x / factor);
+            const by = Math.floor(y / factor);
+            const bi = by * cw + bx;
+
+            Cb[bi] += cb;
+            Cr[bi] += cr;
+            counts[bi]++;
+        }
+    }
+
+    // Average blocks
+    for (let i = 0; i < Cb.length; i++) {
+        Cb[i] /= counts[i];
+        Cr[i] /= counts[i];
+    }
+
+    function sampleChroma(arr, x, y) {
+        if (!useBilinear || factor === 1) {
+            const bx = Math.floor(x / factor);
+            const by = Math.floor(y / factor);
+            return arr[by * cw + bx];
+        }
+
+        // Map pixel center to chroma grid center space
+        const fx = (x + 0.5) / factor - 0.5;
+        const fy = (y + 0.5) / factor - 0.5;
+
+        const x0 = Math.floor(fx);
+        const y0 = Math.floor(fy);
+        const x1 = Math.min(x0 + 1, cw - 1);
+        const y1 = Math.min(y0 + 1, ch - 1);
+
+        const tx = fx - x0;
+        const ty = fy - y0;
+
+        const a = arr[y0 * cw + x0];
+        const b = arr[y0 * cw + x1];
+        const c = arr[y1 * cw + x0];
+        const d = arr[y1 * cw + x1];
+
+        return (
+            a * (1 - tx) * (1 - ty) +
+            b * tx * (1 - ty) +
+            c * (1 - tx) * ty +
+            d * tx * ty
+        );
+    }
+
+    // Reconstruct RGB
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            const p = y * w + x;
+            const yy = Y[p];
+            const cb = sampleChroma(Cb, x, y) - 128;
+            const cr = sampleChroma(Cr, x, y) - 128;
+
+            let r = yy + 1.402 * cr;
+            let g = yy - 0.344136 * cb - 0.714136 * cr;
+            let b = yy + 1.772 * cb;
+
+            const i = p * 4;
+            dst[i]     = Math.min(255, Math.max(0, r));
+            dst[i + 1] = Math.min(255, Math.max(0, g));
+            dst[i + 2] = Math.min(255, Math.max(0, b));
+            dst[i + 3] = 255;
+        }
+    }
+
+    ctx.putImageData(new ImageData(dst, w, h), 0, 0);
+}
+</script>
+
+</body>
+</html>

@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Clone Brush Tool</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 10px;
+    }
+    canvas {
+      border: 1px solid #ccc;
+      touch-action: none;
+      max-width: 100%;
+      height: auto;
+    }
+    .controls {
+      margin-bottom: 10px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: center;
+    }
+    input[type="file"] {
+      display: block;
+    }
+    button {
+      padding: 5px 10px;
+      font-size: 16px;
+    }
+    label {
+      display: flex;
+      align-items: center;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="controls">
+    <input type="file" accept="image/*" id="upload">
+    <label><input type="checkbox" id="setSourceToggle"> Set Source (Mobile)</label>
+    <button id="download">Download Image</button>
+  </div>
+
+  <canvas id="canvas"></canvas>
+
+  <script>
+    const upload = document.getElementById('upload');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const downloadBtn = document.getElementById('download');
+    const setSourceToggle = document.getElementById('setSourceToggle');
+
+    let image = new Image();
+    let sourcePoint = null;
+    let isDrawing = false;
+    let lastPos = null;
+
+    function getTouchPos(canvas, touchEvent) {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: (touchEvent.touches[0].clientX - rect.left) * (canvas.width / rect.width),
+        y: (touchEvent.touches[0].clientY - rect.top) * (canvas.height / rect.height)
+      };
+    }
+
+    upload.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(evt) {
+        image.onload = () => {
+          canvas.width = image.width;
+          canvas.height = image.height;
+          ctx.drawImage(image, 0, 0);
+        };
+        image.src = evt.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+
+    function getCanvasPos(evt) {
+      const rect = canvas.getBoundingClientRect();
+      if (evt.touches) {
+        return getTouchPos(canvas, evt);
+      } else {
+        return {
+          x: (evt.clientX - rect.left) * (canvas.width / rect.width),
+          y: (evt.clientY - rect.top) * (canvas.height / rect.height)
+        };
+      }
+    }
+
+    function startDrawing(evt) {
+      evt.preventDefault();
+      const pos = getCanvasPos(evt);
+      if (evt.altKey || setSourceToggle.checked) {
+        sourcePoint = { x: pos.x, y: pos.y };
+        return;
+      }
+      if (!sourcePoint) return;
+      isDrawing = true;
+      lastPos = pos;
+      drawClone(pos);
+    }
+
+    function draw(evt) {
+      if (!isDrawing) return;
+      const pos = getCanvasPos(evt);
+      drawClone(pos);
+      lastPos = pos;
+    }
+
+    function stopDrawing() {
+      isDrawing = false;
+    }
+
+    function drawClone(pos) {
+      if (!sourcePoint || !lastPos) return;
+      const dx = pos.x - lastPos.x;
+      const dy = pos.y - lastPos.y;
+      sourcePoint.x += dx;
+      sourcePoint.y += dy;
+      ctx.drawImage(canvas,
+        sourcePoint.x, sourcePoint.y, 10, 10,
+        pos.x, pos.y, 10, 10
+      );
+    }
+
+    canvas.addEventListener('mousedown', startDrawing);
+    canvas.addEventListener('mousemove', draw);
+    canvas.addEventListener('mouseup', stopDrawing);
+    canvas.addEventListener('mouseout', stopDrawing);
+
+    canvas.addEventListener('touchstart', startDrawing, { passive: false });
+    canvas.addEventListener('touchmove', draw, { passive: false });
+    canvas.addEventListener('touchend', stopDrawing);
+
+    downloadBtn.addEventListener('click', () => {
+      const link = document.createElement('a');
+      link.download = 'cloned-image.png';
+      link.href = canvas.toDataURL();
+      link.click();
+    });
+  </script>
+</body>
+</html>

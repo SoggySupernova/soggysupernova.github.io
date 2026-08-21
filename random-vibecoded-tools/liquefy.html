@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Liquefy</title>
+<style>
+  :root{
+    --bg:#fafafa;
+    --panel:#ffffff;
+    --border:#e2e2e2;
+    --text:#1a1a1a;
+    --muted:#8a8a8a;
+    --accent:#2563eb;
+    --accent-text:#ffffff;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{
+    height:100%; margin:0; overscroll-behavior:none;
+    background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    touch-action:none; user-select:none;
+  }
+  #app{
+    height:100dvh; display:flex; flex-direction:column;
+  }
+  #viewport{
+    flex:1; position:relative; overflow:hidden;
+    background:
+      linear-gradient(45deg,#eee 25%,transparent 25%) -10px 0/20px 20px,
+      linear-gradient(-45deg,#eee 25%,transparent 25%) -10px 0/20px 20px,
+      linear-gradient(45deg,transparent 75%,#eee 75%) -10px 0/20px 20px,
+      linear-gradient(-45deg,transparent 75%,#eee 75%) -10px 0/20px 20px,
+      #f5f5f5;
+    display:flex; align-items:center; justify-content:center;
+    touch-action:none;
+  }
+  #canvas{
+    position:absolute; top:0; left:0;
+    transform-origin:0 0;
+    touch-action:none;
+    box-shadow:0 2px 20px rgba(0,0,0,0.15);
+    background:#fff;
+  }
+  #placeholder{
+    color:var(--muted); font-size:15px; text-align:center; padding:24px;
+    pointer-events:none;
+  }
+  #placeholder b{display:block; font-size:17px; color:var(--text); margin-bottom:6px;}
+
+  .zoom-controls{
+    position:absolute; top:12px; right:12px; z-index:5;
+    display:flex; flex-direction:column; gap:6px;
+  }
+  .zoom-controls button{
+    width:38px; height:38px; border-radius:10px; border:1px solid var(--border);
+    background:var(--panel); font-size:18px; color:var(--text);
+    display:flex; align-items:center; justify-content:center;
+  }
+
+  #toolbar{
+    background:var(--panel); border-top:1px solid var(--border);
+    padding:10px 12px calc(10px + env(safe-area-inset-bottom));
+    display:flex; flex-direction:column; gap:10px;
+  }
+  .row{ display:flex; gap:8px; align-items:center; }
+  .row.wrap{ flex-wrap:wrap; }
+
+  button, .filebtn{
+    appearance:none; border:1px solid var(--border); background:var(--panel);
+    color:var(--text); border-radius:10px; padding:9px 12px;
+    font-size:13px; line-height:1; cursor:pointer;
+    display:inline-flex; align-items:center; justify-content:center; gap:6px;
+    min-height:38px;
+  }
+  button:active, .filebtn:active{ background:#f0f0f0; }
+  button.primary{ background:var(--accent); color:var(--accent-text); border-color:var(--accent); }
+  button.tool{ flex:1; }
+  button.tool.active{ background:var(--accent); color:var(--accent-text); border-color:var(--accent); }
+  button:disabled{ opacity:0.4; }
+
+  input[type=file]{ display:none; }
+
+  .slider-group{ flex:1; display:flex; flex-direction:column; gap:2px; min-width:120px; }
+  .slider-label{ display:flex; justify-content:space-between; font-size:11px; color:var(--muted); }
+  input[type=range]{ width:100%; accent-color:var(--accent); }
+
+  .actions{ justify-content:space-between; }
+  .actions .left, .actions .right{ display:flex; gap:8px; }
+
+  @media (min-width:640px){
+    #toolbar{ padding-left:20px; padding-right:20px; }
+    .row.wrap{ flex-wrap:nowrap; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div id="viewport">
+    <div id="placeholder"><b>Liquefy</b>Upload an image to start distorting it</div>
+    <canvas id="canvas"></canvas>
+    <div class="zoom-controls">
+      <button id="zoomIn" title="Zoom in">+</button>
+      <button id="zoomOut" title="Zoom out">–</button>
+      <button id="zoomReset" title="Reset view">⤾</button>
+    </div>
+  </div>
+
+  <div id="toolbar">
+
+    <div class="row wrap">
+      <button class="tool active" data-tool="push">Push</button>
+      <button class="tool" data-tool="twirl">Twirl</button>
+      <button class="tool" data-tool="pinch">Pinch</button>
+      <button class="tool" data-tool="bloat">Bloat</button>
+    </div>
+
+    <div class="row">
+      <div class="slider-group">
+        <div class="slider-label"><span>Radius</span><span id="radiusVal">60</span></div>
+        <input type="range" id="radius" min="10" max="180" value="60">
+      </div>
+      <div class="slider-group">
+        <div class="slider-label"><span>Strength</span><span id="strengthVal">50</span></div>
+        <input type="range" id="strength" min="5" max="100" value="50">
+      </div>
+    </div>
+
+    <div class="row actions">
+      <div class="left">
+        <label class="filebtn" for="fileInput">Upload</label>
+        <input type="file" id="fileInput" accept="image/*">
+        <button id="undoBtn" disabled>Undo</button>
+        <button id="resetBtn" disabled>Reset</button>
+      </div>
+      <div class="right">
+        <button id="exportBtn" class="primary" disabled>Export</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+(function(){
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  const viewport = document.getElementById('viewport');
+  const placeholder = document.getElementById('placeholder');
+
+  const fileInput = document.getElementById('fileInput');
+  const radiusInput = document.getElementById('radius');
+  const strengthInput = document.getElementById('strength');
+  const radiusVal = document.getElementById('radiusVal');
+  const strengthVal = document.getElementById('strengthVal');
+  const undoBtn = document.getElementById('undoBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const exportBtn = document.getElementById('exportBtn');
+  const toolButtons = document.querySelectorAll('button.tool');
+
+  const MAX_DIM = 1000;
+  const UNDO_LIMIT = 6;
+
+  let hasImage = false;
+  let originalImageData = null;
+  let undoStack = [];
+  let currentTool = 'push';
+
+  radiusInput.addEventListener('input', () => radiusVal.textContent = radiusInput.value);
+  strengthInput.addEventListener('input', () => strengthVal.textContent = strengthInput.value);
+
+  toolButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      toolButtons.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentTool = btn.dataset.tool;
+    });
+  });
+
+  // ---------- Load image ----------
+  fileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => loadImageToCanvas(img);
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+
+  function loadImageToCanvas(img){
+    let w = img.naturalWidth, h = img.naturalHeight;
+    const scale = Math.min(1, MAX_DIM / Math.max(w, h));
+    w = Math.round(w * scale);
+    h = Math.round(h * scale);
+
+    canvas.width = w;
+    canvas.height = h;
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
+
+    ctx.clearRect(0,0,w,h);
+    ctx.drawImage(img, 0, 0, w, h);
+
+    originalImageData = ctx.getImageData(0,0,w,h);
+    undoStack = [];
+    hasImage = true;
+
+    placeholder.style.display = 'none';
+    undoBtn.disabled = true;
+    resetBtn.disabled = false;
+    exportBtn.disabled = false;
+
+    resetView();
+    centerCanvas();
+  }
+
+  function centerCanvas(){
+    // position canvas centered in viewport using translate, scale stays 1
+    const vr = viewport.getBoundingClientRect();
+    scaleV = 1;
+    txV = Math.round((vr.width - canvas.width) / 2);
+    tyV = Math.round((vr.height - canvas.height) / 2);
+    applyTransform();
+  }
+
+  // ---------- Undo / reset ----------
+  function pushUndo(){
+    if (!hasImage) return;
+    undoStack.push(ctx.getImageData(0,0,canvas.width,canvas.height));
+    if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+    undoBtn.disabled = false;
+  }
+
+  undoBtn.addEventListener('click', () => {
+    if (!undoStack.length) return;
+    const snap = undoStack.pop();
+    ctx.putImageData(snap, 0, 0);
+    undoBtn.disabled = undoStack.length === 0;
+  });
+
+  resetBtn.addEventListener('click', () => {
+    if (!originalImageData) return;
+    ctx.putImageData(originalImageData, 0, 0);
+    undoStack = [];
+    undoBtn.disabled = true;
+  });
+
+  exportBtn.addEventListener('click', () => {
+    if (!hasImage) return;
+    const link = document.createElement('a');
+    link.download = 'liquefied.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  });
+
+  // ---------- Liquefy math ----------
+  function sampleBilinear(data, sw, sh, x, y, out, oi){
+    x = Math.min(Math.max(x, 0), sw - 1.001);
+    y = Math.min(Math.max(y, 0), sh - 1.001);
+    const x0 = Math.floor(x), y0 = Math.floor(y);
+    const x1 = x0 + 1, y1 = y0 + 1;
+    const fx = x - x0, fy = y - y0;
+    for (let c = 0; c < 4; c++){
+      const i00 = (y0*sw+x0)*4+c, i10 = (y0*sw+x1)*4+c;
+      const i01 = (y1*sw+x0)*4+c, i11 = (y1*sw+x1)*4+c;
+      const v0 = data[i00] + (data[i10]-data[i00]) * fx;
+      const v1 = data[i01] + (data[i11]-data[i01]) * fx;
+      out[oi+c] = v0 + (v1-v0) * fy;
+    }
+  }
+
+  function applyBrush(center, delta){
+    if (!hasImage) return;
+    const r = parseInt(radiusInput.value, 10);
+    const strength = parseInt(strengthInput.value, 10) / 100;
+    const tool = currentTool;
+
+    const x0 = Math.max(0, Math.floor(center.x - r));
+    const y0 = Math.max(0, Math.floor(center.y - r));
+    const x1 = Math.min(canvas.width, Math.ceil(center.x + r));
+    const y1 = Math.min(canvas.height, Math.ceil(center.y + r));
+    const w = x1 - x0, h = y1 - y0;
+    if (w <= 0 || h <= 0) return;
+
+    // read a wider source region so pinch/bloat/twirl can sample beyond the write box
+    const margin = Math.ceil(r * 2.2) + 2;
+    const sx0 = Math.max(0, Math.floor(center.x - margin));
+    const sy0 = Math.max(0, Math.floor(center.y - margin));
+    const sx1 = Math.min(canvas.width, Math.ceil(center.x + margin));
+    const sy1 = Math.min(canvas.height, Math.ceil(center.y + margin));
+    const sw = sx1 - sx0, sh = sy1 - sy0;
+    if (sw <= 0 || sh <= 0) return;
+
+    const src = ctx.getImageData(sx0, sy0, sw, sh);
+    const dst = ctx.createImageData(w, h);
+    const sd = src.data, dd = dst.data;
+    const r2 = r * r;
+
+    for (let j = 0; j < h; j++){
+      for (let i = 0; i < w; i++){
+        const gx = x0 + i, gy = y0 + j;
+        const ox = gx - center.x, oy = gy - center.y;
+        const dist2 = ox*ox + oy*oy;
+        const di = (j*w+i)*4;
+
+        if (dist2 > r2){
+          const lx = gx - sx0, ly = gy - sy0;
+          const si = (ly*sw+lx)*4;
+          dd[di]=sd[si]; dd[di+1]=sd[si+1]; dd[di+2]=sd[si+2]; dd[di+3]=sd[si+3];
+          continue;
+        }
+
+        const dist = Math.sqrt(dist2);
+        const t = 1 - dist / r;
+        const falloff = t*t*(3-2*t); // smoothstep
+
+        let sx = gx, sy = gy;
+
+        if (tool === 'push'){
+          sx = gx - delta.x * falloff * strength * 2.2;
+          sy = gy - delta.y * falloff * strength * 2.2;
+        } else if (tool === 'twirl'){
+          const angle = falloff * strength * 3.0;
+          const cos = Math.cos(-angle), sin = Math.sin(-angle);
+          sx = center.x + (ox*cos - oy*sin);
+          sy = center.y + (ox*sin + oy*cos);
+        } else if (tool === 'pinch'){
+          const factor = 1 + falloff * strength * 1.5;
+          sx = center.x + ox * factor;
+          sy = center.y + oy * factor;
+        } else if (tool === 'bloat'){
+          const factor = 1 / (1 + falloff * strength * 1.5);
+          sx = center.x + ox * factor;
+          sy = center.y + oy * factor;
+        }
+
+        const lx = sx - sx0, ly = sy - sy0;
+        sampleBilinear(sd, sw, sh, lx, ly, dd, di);
+      }
+    }
+
+    ctx.putImageData(dst, x0, y0);
+  }
+
+  // ---------- Pointer handling (draw + pinch zoom) ----------
+  const activePointers = new Map();
+  let mode = null; // 'draw' | 'zoom'
+  let lastDrawPoint = null;
+  let latestClientPoint = null;
+  let rafPending = false;
+
+  let zoomStart = null; // {d0, mid0:{x,y}, s0, tx0, ty0, rect}
+  let scaleV = 1, txV = 0, tyV = 0;
+  const MIN_SCALE = 0.5, MAX_SCALE = 6;
+
+  function applyTransform(){
+    canvas.style.transform = `translate(${txV}px, ${tyV}px) scale(${scaleV})`;
+  }
+
+  function resetView(){
+    scaleV = 1;
+    applyTransform();
+  }
+
+  function clientToCanvas(clientX, clientY){
+    const rect = canvas.getBoundingClientRect();
+    const sx = canvas.width / rect.width;
+    const sy = canvas.height / rect.height;
+    return { x: (clientX - rect.left) * sx, y: (clientY - rect.top) * sy };
+  }
+
+  function dist(a, b){
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  }
+  function midpoint(a, b){
+    return { x:(a.x+b.x)/2, y:(a.y+b.y)/2 };
+  }
+
+  function queueDraw(){
+    if (rafPending) return;
+    rafPending = true;
+    requestAnimationFrame(() => {
+      rafPending = false;
+      if (mode !== 'draw' || !latestClientPoint) return;
+      const p = clientToCanvas(latestClientPoint.x, latestClientPoint.y);
+      const delta = lastDrawPoint ? { x: p.x - lastDrawPoint.x, y: p.y - lastDrawPoint.y } : { x:0, y:0 };
+      applyBrush(p, delta);
+      lastDrawPoint = p;
+    });
+  }
+
+  viewport.addEventListener('pointerdown', (e) => {
+    if (!hasImage) return;
+    viewport.setPointerCapture(e.pointerId);
+    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (activePointers.size === 1){
+      mode = 'draw';
+      pushUndo();
+      const p = clientToCanvas(e.clientX, e.clientY);
+      lastDrawPoint = p;
+      applyBrush(p, { x:0, y:0 });
+    } else if (activePointers.size === 2){
+      mode = 'zoom';
+      const pts = [...activePointers.values()];
+      zoomStart = {
+        d0: dist(pts[0], pts[1]),
+        mid0: midpoint(pts[0], pts[1]),
+        s0: scaleV, tx0: txV, ty0: tyV,
+        rect: viewport.getBoundingClientRect()
+      };
+    }
+  });
+
+  viewport.addEventListener('pointermove', (e) => {
+    if (!activePointers.has(e.pointerId)) return;
+    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (mode === 'draw' && activePointers.size === 1){
+      latestClientPoint = { x: e.clientX, y: e.clientY };
+      queueDraw();
+    } else if (mode === 'zoom' && activePointers.size === 2){
+      const pts = [...activePointers.values()];
+      const d1 = dist(pts[0], pts[1]);
+      const mid1 = midpoint(pts[0], pts[1]);
+      const rect = zoomStart.rect;
+
+      const midRel0 = { x: zoomStart.mid0.x - rect.left, y: zoomStart.mid0.y - rect.top };
+      const midRel1 = { x: mid1.x - rect.left, y: mid1.y - rect.top };
+
+      const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, zoomStart.s0 * (d1 / zoomStart.d0)));
+      const canvasPoint = {
+        x: (midRel0.x - zoomStart.tx0) / zoomStart.s0,
+        y: (midRel0.y - zoomStart.ty0) / zoomStart.s0
+      };
+      txV = midRel1.x - canvasPoint.x * newScale;
+      tyV = midRel1.y - canvasPoint.y * newScale;
+      scaleV = newScale;
+      applyTransform();
+    }
+  });
+
+  function endPointer(e){
+    if (!activePointers.has(e.pointerId)) return;
+    activePointers.delete(e.pointerId);
+
+    if (activePointers.size === 0){
+      mode = null; lastDrawPoint = null; latestClientPoint = null; zoomStart = null;
+    } else if (activePointers.size === 1){
+      mode = 'draw';
+      const remaining = [...activePointers.values()][0];
+      lastDrawPoint = clientToCanvas(remaining.x, remaining.y);
+      zoomStart = null;
+    }
+  }
+  viewport.addEventListener('pointerup', endPointer);
+  viewport.addEventListener('pointercancel', endPointer);
+  viewport.addEventListener('pointerleave', (e) => {
+    if (e.pointerType === 'mouse') endPointer(e);
+  });
+
+  // ---------- Zoom buttons ----------
+  function zoomAroundCenter(factor){
+    const rect = viewport.getBoundingClientRect();
+    const cx = rect.width / 2, cy = rect.height / 2;
+    const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scaleV * factor));
+    const canvasPoint = { x: (cx - txV) / scaleV, y: (cy - tyV) / scaleV };
+    txV = cx - canvasPoint.x * newScale;
+    tyV = cy - canvasPoint.y * newScale;
+    scaleV = newScale;
+    applyTransform();
+  }
+  document.getElementById('zoomIn').addEventListener('click', () => zoomAroundCenter(1.3));
+  document.getElementById('zoomOut').addEventListener('click', () => zoomAroundCenter(1/1.3));
+  document.getElementById('zoomReset').addEventListener('click', () => { if(hasImage) centerCanvas(); });
+
+  window.addEventListener('resize', () => { if (hasImage) centerCanvas(); });
+})();
+</script>
+</body>
+</html>

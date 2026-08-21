@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Image Reveal Canvas</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 0;
+      padding: 1em;
+      display: flex;
+      flex-direction: column;
+      gap: 1em;
+    }
+    canvas {
+      border: 1px solid #ccc;
+      width: 100%;
+      height: auto;
+      touch-action: none;
+    }
+    input[type="range"] {
+      width: 100%;
+    }
+    .controls {
+      display: flex;
+      flex-direction: column;
+      gap: 1em;
+    }
+    @media (min-width: 600px) {
+      .controls {
+        flex-direction: row;
+        align-items: center;
+      }
+    }
+  </style>
+</head>
+<body>
+  <input type="file" id="imageUpload" multiple accept="image/*">
+  
+  <div class="controls">
+    <label>
+      Brush Size:
+      <input type="range" id="brushSize" min="5" max="1000" value="30">
+    </label>
+    <label>
+      Reveal Image:
+      <select id="imageSelector"></select>
+    </label>
+    <button id="downloadBtn">Download Result</button>
+  </div>
+
+  <canvas id="revealCanvas" width="800" height="600"></canvas>
+
+  <script>
+    const canvas = document.getElementById('revealCanvas');
+    const ctx = canvas.getContext('2d');
+    const imageUpload = document.getElementById('imageUpload');
+    const imageSelector = document.getElementById('imageSelector');
+    const brushSizeInput = document.getElementById('brushSize');
+    const downloadBtn = document.getElementById('downloadBtn');
+
+    let images = [];
+    let brushSize = parseInt(brushSizeInput.value);
+    let drawing = false;
+    let selectedImageIndex = 0;
+    let lastPos = null;
+
+    brushSizeInput.addEventListener('input', () => {
+      brushSize = parseInt(brushSizeInput.value);
+    });
+
+    imageUpload.addEventListener('change', async (e) => {
+      const files = Array.from(e.target.files);
+      images = [];
+
+      for (const file of files) {
+        const img = new Image();
+        img.src = URL.createObjectURL(file);
+        await img.decode();
+        images.push(img);
+      }
+
+      if (images.length === 0) return;
+
+      const { width, height } = images[0];
+      canvas.width = width;
+      canvas.height = height;
+      ctx.clearRect(0, 0, width, height);
+
+      imageSelector.innerHTML = '';
+      images.forEach((img, index) => {
+        const option = document.createElement('option');
+        option.value = index;
+        option.textContent = `Image ${index + 1}`;
+        imageSelector.appendChild(option);
+      });
+
+      selectedImageIndex = 0;
+      imageSelector.value = 0;
+    });
+
+    imageSelector.addEventListener('change', (e) => {
+      selectedImageIndex = parseInt(e.target.value);
+    });
+
+    function getCanvasCoords(event) {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      const clientX = event.touches ? event.touches[0].clientX : event.clientX;
+      const clientY = event.touches ? event.touches[0].clientY : event.clientY;
+      return {
+        x: (clientX - rect.left) * scaleX,
+        y: (clientY - rect.top) * scaleY
+      };
+    }
+
+    function drawAt(x, y) {
+      if (!images[selectedImageIndex]) return;
+      const img = images[selectedImageIndex];
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(x, y, brushSize / 2, 0, 2 * Math.PI);
+      ctx.clip();
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      ctx.restore();
+    }
+
+    function drawLine(from, to) {
+      const dist = Math.hypot(to.x - from.x, to.y - from.y);
+      const steps = Math.ceil(dist / (brushSize / 2));
+      for (let i = 0; i <= steps; i++) {
+        const x = from.x + (to.x - from.x) * (i / steps);
+        const y = from.y + (to.y - from.y) * (i / steps);
+        drawAt(x, y);
+      }
+    }
+
+    function handleStart(event) {
+      drawing = true;
+      lastPos = getCanvasCoords(event);
+      drawAt(lastPos.x, lastPos.y);
+      event.preventDefault();
+    }
+
+    function handleMove(event) {
+      if (!drawing) return;
+      const currentPos = getCanvasCoords(event);
+      drawLine(lastPos, currentPos);
+      lastPos = currentPos;
+      event.preventDefault();
+    }
+
+    function handleEnd() {
+      drawing = false;
+      lastPos = null;
+    }
+
+    // Mouse Events
+    canvas.addEventListener('mousedown', handleStart);
+    canvas.addEventListener('mousemove', handleMove);
+    canvas.addEventListener('mouseup', handleEnd);
+    canvas.addEventListener('mouseleave', handleEnd);
+
+    // Touch Events
+    canvas.addEventListener('touchstart', handleStart, { passive: false });
+    canvas.addEventListener('touchmove', handleMove, { passive: false });
+    canvas.addEventListener('touchend', handleEnd);
+    canvas.addEventListener('touchcancel', handleEnd);
+
+    downloadBtn.addEventListener('click', () => {
+      const link = document.createElement('a');
+      link.download = 'revealed_image.png';
+      link.href = canvas.toDataURL();
+      link.click();
+    });
+  </script>
+</body>
+</html>

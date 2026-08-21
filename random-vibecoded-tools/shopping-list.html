@@ -1,0 +1,768 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Shopping List</title>
+<style>
+  /* Basic layout + theme vars */
+  :root{
+    --bg: #fff;
+    --fg: #111;
+    --muted: #666;
+    --accent: #0066cc;
+    --card: #f7f7f7;
+    --item-bg: #fff;
+  }
+  .dark {
+    --bg:#0f1114; --fg:#e7e9eb; --muted:#9ba1a6; --accent:#66a3ff; --card:#111418; --item-bg:#0b0c0d;
+  }
+  .fun {
+    --bg:#fff7f0; --fg:#2b2b2b; --muted:#7b5a3c; --accent:#ff6b6b; --card:#fff1e6; --item-bg:#fff9f5;
+  }
+
+  html,body{
+    height:100%;
+    margin:0;
+    font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;
+    background:var(--bg);
+    color:var(--fg);
+    -webkit-font-smoothing:antialiased;
+    -moz-osx-font-smoothing:grayscale;
+  }
+
+body{background-color:var(--bg)}
+
+  /* Top bar */
+  .topbar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:12px;
+    gap:8px;
+    background:linear-gradient(180deg, transparent, rgba(0,0,0,0.02));
+    position:sticky;
+    top:0;
+    z-index:10;
+  }
+  .title{
+    font-weight:600;
+    font-size:18px;
+  }
+  .controls{
+    display:flex;
+    gap:8px;
+    align-items:center;
+  }
+  .btn{
+    background:var(--card);
+    border:0;
+    padding:8px 10px;
+    border-radius:8px;
+    font-size:14px;
+    color:var(--fg);
+    cursor:pointer;
+    box-shadow: none;
+  }
+  .icon-btn{
+    width:44px;height:44px;padding:0;display:flex;align-items:center;justify-content:center;border-radius:10px;
+  }
+  .btn:active{ transform:translateY(1px); }
+
+  /* List */
+  main{
+    padding:12px;
+    padding-bottom:80px; /* room for input */
+  }
+  .list{
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+  }
+  .item{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding:12px;
+    border-radius:10px;
+    background:var(--item-bg);
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.02) inset;
+  }
+  .item .left{
+    display:flex;
+    align-items:center;
+    gap:12px;
+  }
+  /* large checkbox */
+  .cb {
+    width:30px;height:30px;border-radius:6px;border:2px solid var(--muted);display:flex;align-items:center;justify-content:center;cursor:pointer;background:transparent;
+  }
+  .cb.checked { background:var(--accent); border-color:var(--accent); color:white; }
+  .item .label{
+    font-size:16px;
+    line-height:1;
+  }
+  .item .meta{
+    margin-left:auto;
+    display:flex;
+    gap:8px;
+    align-items:center;
+  }
+  .cat-badge{
+    padding:4px 8px;border-radius:999px;background:rgba(0,0,0,0.06);font-size:12px;color:var(--muted);
+  }
+  .qty{
+    font-size:13px;color:var(--muted);
+  }
+
+  /* Input area pinned to bottom */
+  .composer{
+    position:fixed;
+    left:0;right:0;bottom:0;
+    background:linear-gradient(0deg, rgba(0,0,0,0.04), transparent), var(--bg);
+    padding:10px;
+    display:flex;
+    gap:8px;
+    align-items:center;
+    box-shadow: 0 -4px 12px rgba(0,0,0,0.04);
+  }
+  .composer input[type="text"]{
+    flex:1;
+    padding:7px;
+    border-radius:10px;
+    border:1px solid rgba(0,0,0,0.06);
+    font-size:16px;
+    background:var(--card);
+    color:var(--fg);
+  }
+  .composer select{
+    padding:10px;border-radius:10px;border:1px solid rgba(0,0,0,0.06); background:var(--card);
+  }
+  .composer .add-btn{
+    padding:10px 12px;border-radius:10px;background:var(--accent);color:#fff;border:0;font-weight:600;
+  }
+
+  /* Autocomplete */
+  .suggestions{
+    position:fixed;
+    left:10px; right:10px; bottom:72px; /* just above composer */
+    max-height:240px; overflow:auto;
+    background:var(--card);
+    border-radius:10px;
+    padding:8px;
+    box-shadow:0 6px 20px rgba(0,0,0,0.08);
+    display:none;
+    z-index:20;
+  }
+  .suggestion{
+    padding:8px;border-radius:8px;display:flex;align-items:center;gap:10px;cursor:pointer;
+  }
+  .suggestion:hover{ background:rgba(0,0,0,0.03); }
+  .suggestion .cat{ font-size:12px;color:var(--muted); margin-left:auto; }
+
+  /* Settings panel */
+  .settings-panel{
+    position:fixed;
+    top:56px; right:12px;
+    width:320px;
+    max-width:calc(100% - 40px);
+    background:var(--card);
+    border-radius:12px;
+    box-shadow:0 10px 30px rgba(0,0,0,0.12);
+    padding:12px;
+    z-index:50;
+    display:none;
+  }
+  .settings-panel h3{ margin:6px 0 10px;font-size:16px; }
+  .settings-row{ margin-bottom:10px; }
+  .settings-row label{ display:block;font-size:13px;color:var(--muted); margin-bottom:6px; }
+  .settings-row select, .settings-row textarea, .settings-row input[type="file"] {
+    width:100%;
+    padding:8px;border-radius:8px;border:1px solid rgba(0,0,0,0.06); background:transparent;color:var(--fg);
+  }
+  .settings-row textarea{ min-height:120px; resize:vertical; font-family:monospace; font-size:13px; }
+
+  .small{
+    font-size:13px;color:var(--muted);
+  }
+
+  /* Empty state */
+  .empty{
+    text-align:center;color:var(--muted);padding:36px;border-radius:10px;background:var(--card);
+  }
+
+  /* responsive tweaks */
+  @media (min-width:600px){
+    main{ padding-left:40px;padding-right:40px; }
+    .settings-panel{ right:40px; }
+  }
+
+  /* subtle finished style */
+  .label.done{ text-decoration:line-through; color:var(--muted); opacity:0.9; }
+
+  /* small helpers */
+  .hidden{ display:none !important; }
+</style>
+</head>
+<body>
+  <div id="app" class="">
+    <div class="topbar">
+      <div style="display:flex;gap:10px;align-items:center;">
+        <div class="title">Shopping List</div>
+        <div id="filterInfo" class="small" style="display:none;"></div>
+      </div>
+
+      <div class="controls">
+        <button id="selectAllBtn" class="btn">Check All</button>
+        <button id="deselectAllBtn" class="btn">Uncheck All</button>
+
+        <button id="settingsBtn" class="btn icon-btn" title="Settings">
+          <!-- gear -->
+         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-settings-icon lucide-settings"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <main>
+      <div id="list" class="list" aria-live="polite"></div>
+      <div id="empty" class="empty hidden">No items</div>
+    </main>
+
+    <!-- Suggestions -->
+    <div id="suggestions" class="suggestions" role="listbox" aria-label="Suggestions"></div>
+
+    <!-- Settings panel -->
+    <div id="settings" class="settings-panel" aria-hidden="true">
+      <h3>Settings</h3>
+
+      <div class="settings-row">
+        <label>Theme</label>
+        <select id="themeSelect">
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+          <option value="fun">Fun</option>
+          <option value="custom">Custom CSS</option>
+        </select>
+        <div class="small" style="margin-top:6px;"></div>
+      </div>
+
+      <div class="settings-row">
+        <label>Custom CSS</label>
+        <textarea id="customCss" placeholder="/* Paste custom CSS here */"></textarea>
+        <div style="display:flex;gap:8px;margin-top:6px;">
+          <button id="applyCssBtn" class="btn">Save CSS</button>
+          <button id="resetCssBtn" class="btn">Reset</button>
+        </div>
+      </div>
+
+      <div class="settings-row">
+        <div style="display:flex;gap:10px;align-items:center;">
+          <input type="checkbox" id="moveToBottomToggle" />
+          <label for="moveToBottomToggle" class="small">Move completed items to bottom</label>
+        </div>
+      </div>
+
+      <div class="settings-row">
+        <label>Import / Export List</label>
+        <div style="display:flex;gap:8px;">
+          <button id="exportBtn" class="btn">Export JSON</button>
+          <input id="importFile" type="file" accept=".json" />
+        </div>
+        <div class="small" style="margin-top:6px;"></div>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <button id="clearAllBtn" class="btn" style="flex:1;background:rgba(255,0,0,0.06);color:var(--fg);">Clear all items</button>
+        <button id="closeSettingsBtn" class="btn" style="flex:1;">Close</button>
+      </div>
+    </div>
+
+    <!-- Composer -->
+    <div class="composer">
+      <select style="color: var(--fg)" id="categorySelect" title="Category (auto-filled from suggestions)">
+        <!-- categories injected by JS -->
+      </select>
+      <input id="input" type="text" placeholder="Add item"/>
+      <button id="addBtn" class="add-btn">Add</button>
+    </div>
+  </div>
+
+<script>
+/* ==========================
+   App state + defaults
+   ========================== */
+
+const STORAGE_KEY = 'shopping_list_v1';
+const SETTINGS_KEY = 'shopping_list_settings_v1';
+const CSS_KEY = 'shopping_list_custom_css_v1';
+const DEFAULTS = {
+  items: [], // {id, text, completed, category, created}
+  moveCompletedToBottom: true,
+  theme: 'light',
+  customCSS: ''
+};
+
+/* Hardcoded arrays (empty now but you can edit them later) */
+const SUGGESTIONS = [
+  // Example suggestions (you can remove or edit). Each suggestion may have automatic category assigned via SUGG_CATS.
+  'Milk','Eggs','Bread','Bananas','Apples','Chicken Breast','Rice','Pasta','Butter','Cheese'
+];
+const CATEGORIES = [
+  'Produce','Dairy','Bakery','Meat','Pantry','Frozen','Household','Other'
+];
+/* Automatic suggestion -> category mapping (edit later if desired) */
+const SUGG_CATS = {
+  'Milk':'Dairy',
+  'Eggs':'Dairy',
+  'Cheese':'Dairy',
+  'Butter':'Dairy',
+  'Bananas':'Produce',
+  'Apples':'Produce',
+  'Bread':'Bakery',
+  'Chicken Breast':'Meat',
+  'Rice':'Pantry',
+  'Pasta':'Pantry'
+};
+
+/* Simple DOM helpers */
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+
+/* Load/save localStorage */
+function loadState(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    const settingsRaw = localStorage.getItem(SETTINGS_KEY);
+    const customCSS = localStorage.getItem(CSS_KEY) || '';
+    let state = JSON.parse(raw || 'null');
+    if(!state) state = {...DEFAULTS};
+    // restore settings separately
+    const settings = JSON.parse(settingsRaw || 'null') || {};
+    state.moveCompletedToBottom = (settings.moveCompletedToBottom !== undefined) ? settings.moveCompletedToBottom : DEFAULTS.moveCompletedToBottom;
+    state.theme = settings.theme || DEFAULTS.theme;
+    state.customCSS = customCSS || settings.customCSS || '';
+    // ensure items array exists
+    state.items = state.items || [];
+    return state;
+  }catch(e){
+    console.error('Failed to load state',e);
+    return {...DEFAULTS};
+  }
+}
+function saveState(state){
+  try{
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({items: state.items}));
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ moveCompletedToBottom: state.moveCompletedToBottom, theme: state.theme }));
+    if(state.customCSS !== undefined) localStorage.setItem(CSS_KEY, state.customCSS || '');
+  }catch(e){
+    console.error('Failed to save state', e);
+  }
+}
+
+/* App runtime */
+let state = loadState();
+
+/* Inject categories into select */
+function populateCategorySelect(){
+  const sel = $('#categorySelect');
+  sel.innerHTML = '';
+  CATEGORIES.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c;
+    opt.textContent = c;
+    sel.appendChild(opt);
+  });
+}
+
+/* Render list items */
+function renderList(){
+  const list = $('#list');
+  list.innerHTML = '';
+  if(state.items.length === 0){
+    $('#empty').classList.remove('hidden');
+  }else{
+    $('#empty').classList.add('hidden');
+  }
+
+  // determine ordering
+  let itemsToRender = state.items.slice();
+  if(state.moveCompletedToBottom){
+    itemsToRender.sort((a,b) => (a.completed === b.completed) ? a.created - b.created : (a.completed?1:-1));
+  }else{
+    itemsToRender.sort((a,b) => a.created - b.created);
+  }
+
+  itemsToRender.forEach(item => {
+    const div = document.createElement('div');
+    div.className = 'item';
+    // left: checkbox + label
+    const left = document.createElement('div');
+    left.className = 'left';
+
+    const cb = document.createElement('div');
+    cb.className = 'cb' + (item.completed ? ' checked' : '');
+    cb.title = item.completed ? 'Mark as not done' : 'Mark as done';
+    cb.setAttribute('role','button');
+    cb.setAttribute('aria-pressed', String(item.completed));
+    cb.addEventListener('click', () => toggleComplete(item.id));
+    cb.innerHTML = item.completed ? '&#10003;' : '';
+
+    const label = document.createElement('div');
+    label.className = 'label' + (item.completed ? ' done' : '');
+    label.textContent = item.text;
+    label.style.minWidth = '0';
+
+    // allow inline editing on double click (simple)
+    label.addEventListener('dblclick', () => {
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = item.text;
+      input.style.fontSize = '16px';
+      input.style.padding = '6px';
+      input.style.borderRadius = '8px';
+      input.addEventListener('keydown', (e) => {
+        if(e.key === 'Enter'){ saveEdit(); }
+        if(e.key === 'Escape'){ cancelEdit(); }
+      });
+      function saveEdit(){
+        const v = input.value.trim();
+        if(v){ item.text = v; saveState(state); renderList(); }
+      }
+      function cancelEdit(){ renderList(); }
+      input.addEventListener('blur', saveEdit);
+      label.replaceWith(input);
+      input.focus();
+    });
+
+    left.appendChild(cb);
+    left.appendChild(label);
+
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    const cat = document.createElement('div');
+    cat.className = 'cat-badge';
+    cat.textContent = item.category || '';
+    meta.appendChild(cat);
+
+    const del = document.createElement('button');
+    del.className = 'btn';
+    del.textContent = 'Delete';
+    del.addEventListener('click', () => {
+      if(confirm('Delete "'+item.text+'"?')) {
+        state.items = state.items.filter(i => i.id !== item.id);
+        saveState(state);
+        renderList();
+      }
+    });
+    meta.appendChild(del);
+
+    div.appendChild(left);
+    div.appendChild(meta);
+    list.appendChild(div);
+  });
+  applyTheme(state.theme); // ensure theme class set
+}
+
+/* Add item */
+function addItem(text, category){
+  const t = (text || '').trim();
+  if(!t) return;
+  const cat = category || '';
+  const item = {
+    id: 'i_' + Date.now() + '_' + Math.floor(Math.random()*1000),
+    text: t,
+    completed: false,
+    category: cat,
+    created: Date.now()
+  };
+  state.items.push(item);
+  saveState(state);
+  renderList();
+}
+
+/* Toggle complete */
+function toggleComplete(id){
+  const it = state.items.find(i => i.id === id);
+  if(!it) return;
+  it.completed = !it.completed;
+  saveState(state);
+  renderList();
+}
+
+/* Select / deselect all */
+function selectAll(){
+  state.items.forEach(i=>i.completed = true);
+  saveState(state); renderList();
+}
+function deselectAll(){
+  state.items.forEach(i=>i.completed = false);
+  saveState(state); renderList();
+}
+
+/* Autocomplete */
+const suggestionsEl = $('#suggestions');
+const inputEl = $('#input');
+function showSuggestions(filtered){
+  suggestionsEl.innerHTML = '';
+  if(filtered.length === 0){
+    suggestionsEl.style.display = 'none'; return;
+  }
+  filtered.forEach(s => {
+    const div = document.createElement('div');
+    div.className = 'suggestion';
+    const left = document.createElement('div');
+    left.textContent = s;
+    const cat = document.createElement('div');
+    cat.className = 'cat';
+    cat.textContent = SUGG_CATS[s] || '';
+    div.appendChild(left);
+    div.appendChild(cat);
+    div.addEventListener('click', () => {
+      inputEl.value = s;
+      // auto-set category if mapping exists
+      const mapped = SUGG_CATS[s];
+      if(mapped){
+        $('#categorySelect').value = CATEGORIES.includes(mapped) ? mapped : (CATEGORIES[0]||'');
+      }
+      hideSuggestions();
+      inputEl.focus();
+    });
+    suggestionsEl.appendChild(div);
+  });
+  suggestionsEl.style.display = 'block';
+}
+function hideSuggestions(){ suggestionsEl.style.display = 'none'; }
+
+/* Filtering logic */
+function filterSuggestions(q){
+  if(!q) return [];
+  const lower = q.toLowerCase();
+  // suggestions that start with or contain the query, prioritize startsWith
+  const starts = SUGGESTIONS.filter(s => s.toLowerCase().startsWith(lower));
+  const contains = SUGGESTIONS.filter(s => !s.toLowerCase().startsWith(lower) && s.toLowerCase().includes(lower));
+  return starts.concat(contains).slice(0,20);
+}
+
+/* Settings UI */
+const settingsPanel = $('#settings');
+function openSettings(){
+  settingsPanel.style.display = 'block';
+  settingsPanel.setAttribute('aria-hidden','false');
+  // populate controls
+  $('#moveToBottomToggle').checked = !!state.moveCompletedToBottom;
+  $('#themeSelect').value = state.theme || 'light';
+  $('#customCss').value = state.customCSS || '';
+}
+function closeSettings(){
+  settingsPanel.style.display = 'none';
+  settingsPanel.setAttribute('aria-hidden','true');
+}
+
+/* Theme application */
+function applyTheme(theme){
+  const app = document.getElementById('app');
+  app.classList.remove('dark','fun');
+  document.body.classList.remove('dark','fun');
+  if(theme === 'dark') {app.classList.add('dark');document.body.classList.add('dark')};
+  if(theme === 'fun') {app.classList.add('fun');document.body.classList.add('fun')};
+  // custom theme handling
+  if(theme === 'custom'){
+    // custom CSS will be in a <style id="custom-style"> tag
+    injectCustomCSS(state.customCSS || '');
+    document.getElementById('app').style.background = 'var(--bg)';
+  } else {
+    // ensure we remove custom-style if exists only if theme not custom (but keep persisted custom CSS)
+    removeCustomCSS();
+  }
+}
+
+/* Inject/remove custom CSS */
+function injectCustomCSS(css){
+  let tag = document.getElementById('custom-style');
+  if(!tag){
+    tag = document.createElement('style');
+    tag.id = 'custom-style';
+    document.head.appendChild(tag);
+  }
+  tag.textContent = css || '';
+}
+function removeCustomCSS(){
+  const t = document.getElementById('custom-style');
+  if(t) t.remove();
+}
+
+/* Export/Import */
+function exportJSON(){
+  const payload = { items: state.items, exportedAt: new Date().toISOString() };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {type: 'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'shopping-list.json';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+function importFile(file){
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try{
+      const parsed = JSON.parse(e.target.result);
+      if(!parsed || !Array.isArray(parsed.items)) throw new Error('Invalid file: items array missing');
+      // Overwrite items after confirmation
+      if(confirm('Importing will replace your current list. Continue?')){
+        state.items = parsed.items.map(i => ({
+          id: i.id || ('i_' + Date.now() + Math.random().toString(16).slice(2)),
+          text: i.text || '',
+          completed: !!i.completed,
+          category: i.category || '',
+          created: i.created || Date.now()
+        }));
+        saveState(state);
+        renderList();
+        alert('Import successful');
+      }
+    }catch(err){
+      alert('Import failed: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+}
+
+/* Init UI + events */
+function init(){
+  populateCategorySelect();
+  renderList();
+
+  // initial settings
+  $('#moveToBottomToggle').checked = !!state.moveCompletedToBottom;
+  $('#themeSelect').value = state.theme || 'light';
+  $('#customCss').value = state.customCSS || '';
+  applyTheme(state.theme);
+
+  // events
+  $('#addBtn').addEventListener('click', () => {
+    const txt = inputEl.value.trim();
+    const cat = $('#categorySelect').value;
+    if(!txt) return;
+    addItem(txt, cat);
+    inputEl.value = '';
+    hideSuggestions();
+  });
+  inputEl.addEventListener('keydown', (e) => {
+    if(e.key === 'Enter'){
+      e.preventDefault();
+      $('#addBtn').click();
+    }
+    if(e.key === 'ArrowDown'){
+      // focus suggestions if present
+      const first = suggestionsEl.querySelector('.suggestion');
+      if(first){ first.focus(); }
+    }
+  });
+  inputEl.addEventListener('input', (e) => {
+    const v = e.target.value.trim();
+    if(!v){ hideSuggestions(); return; }
+    const filtered = filterSuggestions(v);
+    showSuggestions(filtered);
+  });
+  document.addEventListener('click', (e) => {
+    if(!settingsPanel.contains(e.target) && !$('#settingsBtn').contains(e.target)){
+      closeSettings();
+    }
+    if(!suggestionsEl.contains(e.target) && e.target !== inputEl){
+      hideSuggestions();
+    }
+  });
+
+  $('#settingsBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    if(settingsPanel.style.display === 'block') closeSettings(); else openSettings();
+  });
+  $('#closeSettingsBtn').addEventListener('click', closeSettings);
+
+  $('#moveToBottomToggle').addEventListener('change', (e) => {
+    state.moveCompletedToBottom = e.target.checked;
+    saveState(state);
+    renderList();
+  });
+
+  $('#themeSelect').addEventListener('change', (e) => {
+    const t = e.target.value;
+    state.theme = t;
+    saveState(state);
+    applyTheme(t);
+    // if custom, also inject any saved custom CSS
+    if(t === 'custom'){
+      injectCustomCSS(state.customCSS || '');
+    } else {
+      removeCustomCSS();
+    }
+  });
+
+  $('#applyCssBtn').addEventListener('click', () => {
+    state.customCSS = $('#customCss').value || '';
+    saveState(state);
+    if(state.theme === 'custom') injectCustomCSS(state.customCSS);
+    alert('Custom CSS saved.');
+  });
+  $('#resetCssBtn').addEventListener('click', () => {
+    if(confirm('Reset custom CSS?')){
+      state.customCSS = '';
+      $('#customCss').value = '';
+      saveState(state);
+      removeCustomCSS();
+    }
+  });
+
+  $('#exportBtn').addEventListener('click', exportJSON);
+  $('#importFile').addEventListener('change', (ev) => {
+    const f = ev.target.files[0];
+    if(f) importFile(f);
+    // reset input
+    ev.target.value = '';
+  });
+
+  $('#selectAllBtn').addEventListener('click', () => {
+    selectAll();
+  });
+  $('#deselectAllBtn').addEventListener('click', () => {
+    deselectAll();
+  });
+
+  $('#clearAllBtn').addEventListener('click', () => {
+    if(confirm('Clear all items? This cannot be undone.')){
+      state.items = [];
+      saveState(state);
+      renderList();
+    }
+  });
+
+  // keyboard shortcuts (mobile friendly but helpful on desktop)
+  document.addEventListener('keydown', (e) => {
+    if(e.ctrlKey && e.key === 'a'){ e.preventDefault(); selectAll(); }
+    if(e.ctrlKey && e.key === 'd'){ e.preventDefault(); deselectAll(); }
+  });
+
+  // Hide suggestions when resizing
+  window.addEventListener('resize', hideSuggestions);
+}
+
+/* Run */
+init();
+
+// Fix iOS keyboard pushing up page
+
+document.ontouchmove = function(e){
+    e.preventDefault();
+  }
+
+document.querySelector("input").onfocus = function () {
+  window.scrollTo(0, 0)
+  document.body.scrollTop = 0
+}
+
+</script>
+</body>
+</html>

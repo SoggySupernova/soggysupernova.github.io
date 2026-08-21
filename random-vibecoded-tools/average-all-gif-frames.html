@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>GIF Frame Averager</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 1000px; margin: 24px auto; padding: 0 16px; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+    canvas { border: 1px solid #ccc; max-width: 100%; height: auto; display: block; margin-top: 12px; }
+    textarea { width: 100%; min-height: 240px; margin-top: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    button, a, input { font-size: 14px; }
+    #status { margin-top: 8px; color: #444; }
+  </style>
+</head>
+<body>
+  <h1>GIF Frame Averager</h1>
+
+  <div class="row">
+    <input type="file" id="gifInput" accept="image/gif" />
+    <button id="averageBtn">Average Frames</button>
+    <a id="downloadBtn" href="#" download="averaged.png" style="pointer-events:none; opacity:.5;">Download PNG</a>
+  </div>
+
+  <div id="status">Choose a GIF to begin.</div>
+  <canvas id="output"></canvas>
+
+  <h3>Verbose log</h3>
+  <textarea id="log" readonly></textarea>
+
+  <script type="module">
+    import { parseGIF, decompressFrames } from 'https://cdn.jsdelivr.net/npm/gifuct-js@2.1.2/+esm';
+
+    const gifInput = document.getElementById('gifInput');
+    const averageBtn = document.getElementById('averageBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const statusEl = document.getElementById('status');
+    const canvas = document.getElementById('output');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const logEl = document.getElementById('log');
+
+    function log(msg) {
+      const line = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      logEl.value += line + '\n';
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function setStatus(msg) {
+      statusEl.textContent = msg;
+      log(msg);
+    }
+
+    function setDownloadEnabled(enabled) {
+      downloadBtn.style.pointerEvents = enabled ? 'auto' : 'none';
+      downloadBtn.style.opacity = enabled ? '1' : '.5';
+    }
+
+    async function averageGif(file) {
+      setStatus(`Reading file: ${file.name}`);
+      const arrayBuffer = await file.arrayBuffer();
+      log(`Loaded ${arrayBuffer.byteLength} bytes`);
+
+      const gif = parseGIF(arrayBuffer);
+      const frames = decompressFrames(gif, true);
+
+      const width = gif.lsd.width;
+      const height = gif.lsd.height;
+      canvas.width = width;
+      canvas.height = height;
+
+      log(`GIF size: ${width}x${height}`);
+      log(`Decoded frames: ${frames.length}`);
+
+      const sum = new Float64Array(width * height * 4);
+      const count = new Uint32Array(width * height);
+
+      frames.forEach((frame, i) => {
+        const { patch, dims } = frame;
+        const fw = dims.width;
+        const fh = dims.height;
+        const left = dims.left;
+        const top = dims.top;
+
+        log(`Frame ${i + 1}/${frames.length}: ${fw}x${fh} at (${left}, ${top})`);
+
+        for (let y = 0; y < fh; y++) {
+          for (let x = 0; x < fw; x++) {
+            const srcIdx = (y * fw + x) * 4;
+            const a = patch[srcIdx + 3];
+            if (!a) continue;
+
+            const dx = left + x;
+            const dy = top + y;
+            if (dx < 0 || dy < 0 || dx >= width || dy >= height) continue;
+
+            const dstIdx = (dy * width + dx) * 4;
+            sum[dstIdx] += patch[srcIdx];
+            sum[dstIdx + 1] += patch[srcIdx + 1];
+            sum[dstIdx + 2] += patch[srcIdx + 2];
+            sum[dstIdx + 3] += a;
+            count[dy * width + dx]++;
+          }
+        }
+      });
+
+      log('Building averaged image...');
+      const out = ctx.createImageData(width, height);
+      for (let i = 0; i < width * height; i++) {
+        const dst = i * 4;
+        const n = count[i] || 1;
+        out.data[dst] = Math.round(sum[dst] / n);
+        out.data[dst + 1] = Math.round(sum[dst + 1] / n);
+        out.data[dst + 2] = Math.round(sum[dst + 2] / n);
+        out.data[dst + 3] = Math.round(sum[dst + 3] / n);
+      }
+
+      ctx.putImageData(out, 0, 0);
+      downloadBtn.href = canvas.toDataURL('image/png');
+      setDownloadEnabled(true);
+      log('Done. PNG ready for download.');
+      setStatus('Done.');
+    }
+
+    averageBtn.addEventListener('click', async () => {
+      logEl.value = '';
+      setDownloadEnabled(false);
+
+      const file = gifInput.files && gifInput.files[0];
+      if (!file) {
+        setStatus('Please choose a GIF file first.');
+        return;
+      }
+
+      try {
+        await averageGif(file);
+      } catch (err) {
+        log(`ERROR: ${err?.message || err}`);
+        statusEl.textContent = 'Failed to process the GIF.';
+      }
+    });
+
+    setDownloadEnabled(false);
+  </script>
+</body>
+</html>

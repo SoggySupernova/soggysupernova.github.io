@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WebRTC QR Chat</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: monospace; padding: 20px; max-width: 700px; margin: auto; background: #111; color: #eee; }
+  h1 { margin-bottom: 20px; font-size: 1.2em; }
+  button { background: #333; color: #eee; border: 1px solid #555; padding: 8px 16px; cursor: pointer; border-radius: 4px; margin: 4px; }
+  button:hover { background: #444; }
+  button:disabled { opacity: 0.4; cursor: default; }
+  textarea { width: 100%; background: #1a1a1a; color: #eee; border: 1px solid #444; padding: 8px; border-radius: 4px; font-family: monospace; font-size: 0.75em; resize: vertical; }
+  #log { background: #0a0a0a; border: 1px solid #333; padding: 10px; height: 200px; overflow-y: auto; border-radius: 4px; font-size: 0.85em; margin-bottom: 10px; }
+  .msg { margin: 4px 0; }
+  .msg.me { color: #7af; }
+  .msg.peer { color: #afa; }
+  .msg.sys { color: #aaa; font-style: italic; }
+  #qr-display { margin: 10px 0; }
+  #qr-display canvas, #qr-display img { border: 4px solid white; }
+  section { margin: 16px 0; padding: 16px; border: 1px solid #333; border-radius: 6px; }
+  label { display: block; margin-bottom: 6px; font-size: 0.85em; color: #aaa; }
+  input[type=text] { width: 100%; background: #1a1a1a; color: #eee; border: 1px solid #444; padding: 8px; border-radius: 4px; font-family: monospace; font-size: 0.85em; }
+  .row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+  .row input { flex: 1; }
+  #status { font-size: 0.85em; padding: 6px 10px; border-radius: 4px; display: inline-block; margin-bottom: 10px; background: #222; }
+  .connected { color: #4f4; }
+  .disconnected { color: #f44; }
+  .pending { color: #fa4; }
+  #chat-section { display: none; }
+  details { margin-top: 8px; }
+  summary { cursor: pointer; color: #aaa; font-size: 0.8em; }
+  #scan-section { display: none; }
+</style>
+</head>
+<body>
+
+<h1>⚡ WebRTC QR Chat</h1>
+<div id="status" class="disconnected">Not connected</div>
+
+<!-- STEP 1: Role selection -->
+<section id="role-section">
+  <label>Choose your role:</label>
+  <button onclick="startHost()">📡 Host (create offer)</button>
+  <button onclick="startGuest()">📲 Guest (scan QR / paste offer)</button>
+</section>
+
+<!-- HOST FLOW -->
+<section id="host-section" style="display:none">
+  <label>1. Your offer QR — scan this on the guest device:</label>
+  <div id="qr-display"></div>
+  <details>
+    <summary>Or copy offer manually</summary>
+    <textarea id="offer-text" rows="4" readonly></textarea>
+  </details>
+  <br>
+  <label>2. Paste the guest's answer here:</label>
+  <div class="row">
+    <input type="text" id="answer-input" placeholder="Paste answer string from guest…">
+    <button onclick="acceptAnswer()">Connect</button>
+  </div>
+</section>
+
+<!-- GUEST FLOW -->
+<section id="guest-section" style="display:none">
+  <label>Paste the host's offer (or scan and it auto-fills):</label>
+  <div class="row">
+    <input type="text" id="offer-input" placeholder="Paste offer string from host…">
+    <button onclick="acceptOffer()">Generate Answer</button>
+  </div>
+  <br>
+  <div id="scan-section">
+    <label>Or scan host QR with camera:</label>
+    <video id="scanner-video" width="280" height="210" style="border:1px solid #555; display:block; margin:8px 0;" autoplay playsinline muted></video>
+    <button onclick="startScan()">📷 Start Camera Scan</button>
+    <button onclick="stopScan()">Stop</button>
+  </div>
+  <br>
+  <div id="answer-output-section" style="display:none">
+    <label>Show this QR (or string) to the host:</label>
+    <div id="answer-qr"></div>
+    <details>
+      <summary>Or copy answer manually</summary>
+      <textarea id="answer-text" rows="4" readonly></textarea>
+    </details>
+  </div>
+</section>
+
+<!-- CHAT -->
+<section id="chat-section">
+  <div id="log"></div>
+  <div class="row">
+    <input type="text" id="msg-input" placeholder="Type a message…" onkeydown="if(event.key==='Enter') send()">
+    <button onclick="send()">Send</button>
+  </div>
+</section>
+
+<script>
+// ── Global error traps (for Safari silent failures) ──────────────────────────
+window.onerror = (msg, src, line, col, err) => {
+  alert('[JS ERROR]\n' + msg + '\nLine ' + line + '\n' + (err && err.stack ? err.stack : ''));
+};
+window.onunhandledrejection = (e) => {
+  const reason = e.reason;
+  const msg = reason instanceof Error
+    ? reason.message + '\n' + (reason.stack || '')
+    : JSON.stringify(reason);
+  alert('[UNHANDLED PROMISE REJECTION]\n' + msg);
+};
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ICE = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+let pc, dc, scanInterval, scanStream;
+
+function err(label, e) {
+  const msg = e instanceof Error ? e.message + '\n' + (e.stack || '') : String(e);
+  alert('[' + label + ']\n' + msg);
+}
+
+function setStatus(text, cls) {
+  const el = document.getElementById('status');
+  el.textContent = text;
+  el.className = cls;
+}
+
+function log(text, type='sys') {
+  const div = document.getElementById('log');
+  const p = document.createElement('div');
+  p.className = 'msg ' + type;
+  p.textContent = (type==='me' ? '▶ ' : type==='peer' ? '◀ ' : '• ') + text;
+  div.appendChild(p);
+  div.scrollTop = div.scrollHeight;
+}
+
+function encode(obj) { return btoa(JSON.stringify(obj)); }
+function decode(str) { return JSON.parse(atob(str.trim())); }
+
+function makeQR(containerId, text) {
+  try {
+    const el = document.getElementById(containerId);
+    el.innerHTML = '';
+    if (typeof QRCode === 'undefined') {
+      alert('[QR ERROR]\nQRCode library failed to load. Check your internet connection.');
+      return;
+    }
+    new QRCode(el, { text, width: 220, height: 220, correctLevel: QRCode.CorrectLevel.L });
+  } catch(e) { err('makeQR', e); }
+}
+
+function setupDC(channel) {
+  try {
+    dc = channel;
+    dc.onerror = (e) => {
+      const detail = e.error ? e.error.message : JSON.stringify(e);
+      alert('[DATA CHANNEL ERROR]\n' + detail);
+    };
+    dc.onopen = () => {
+      try {
+        setStatus('Connected ✓', 'connected');
+        document.getElementById('chat-section').style.display = 'block';
+        log('Connection established');
+      } catch(e) { err('dc.onopen', e); }
+    };
+    dc.onclose = () => {
+      try {
+        setStatus('Disconnected', 'disconnected');
+        log('Connection closed');
+        alert('[DATA CHANNEL]\nConnection closed unexpectedly.\nDC state: ' + dc.readyState + '\nPC state: ' + (pc ? pc.connectionState : 'no pc'));
+      } catch(e) { err('dc.onclose', e); }
+    };
+    dc.onmessage = (e) => {
+      try { log(e.data, 'peer'); }
+      catch(ex) { err('dc.onmessage', ex); }
+    };
+  } catch(e) { err('setupDC', e); }
+}
+
+async function startHost() {
+  try {
+    document.getElementById('role-section').style.display = 'none';
+    document.getElementById('host-section').style.display = 'block';
+    document.getElementById('scan-section').style.display = 'block';
+    setStatus('Waiting for guest…', 'pending');
+
+    if (!window.RTCPeerConnection) {
+      alert('[HOST ERROR]\nRTCPeerConnection is not available in this browser/context.\nSafari requires HTTPS for WebRTC.');
+      return;
+    }
+
+    pc = new RTCPeerConnection(ICE);
+
+    pc.onicecandidateerror = (e) => {
+      alert('[ICE CANDIDATE ERROR]\nCode: ' + e.errorCode + '\nURL: ' + e.url + '\nText: ' + e.errorText);
+    };
+    pc.onconnectionstatechange = () => {
+      const s = pc.connectionState;
+      log('PC connection state: ' + s);
+      if (s === 'failed') alert('[HOST PC]\nConnection state: failed\nICE state: ' + pc.iceConnectionState + '\nICE gathering: ' + pc.iceGatheringState);
+    };
+    pc.oniceconnectionstatechange = () => {
+      const s = pc.iceConnectionState;
+      log('ICE state: ' + s);
+      if (s === 'failed' || s === 'disconnected') alert('[HOST ICE]\nICE connection state: ' + s);
+    };
+    let hostQRDone = false;
+    function publishHostOffer() {
+      if (hostQRDone) return;
+      hostQRDone = true;
+      try {
+        const encoded = encode(pc.localDescription);
+        document.getElementById('offer-text').value = encoded;
+        makeQR('qr-display', encoded);
+        log('Offer QR generated (gathering: ' + pc.iceGatheringState + ')');
+      } catch(e) { err('publishHostOffer', e); }
+    }
+
+    pc.onicegatheringstatechange = () => {
+      log('ICE gathering: ' + pc.iceGatheringState);
+      if (pc.iceGatheringState === 'complete') publishHostOffer();
+    };
+
+    pc.onicecandidate = (evt) => {
+      try {
+        if (evt.candidate) {
+          log('host candidate: ' + evt.candidate.candidate);
+        } else {
+          log('onicecandidate: null (gathering done)');
+          publishHostOffer();
+        }
+      } catch(e) { err('onicecandidate (host)', e); }
+    };
+
+    try {
+      dc = pc.createDataChannel('chat');
+    } catch(e) { err('createDataChannel', e); return; }
+    setupDC(dc);
+
+    let offer;
+    try {
+      offer = await pc.createOffer();
+    } catch(e) { err('createOffer', e); return; }
+
+    try {
+      await pc.setLocalDescription(offer);
+    } catch(e) { err('setLocalDescription (host offer)', e); return; }
+
+    setTimeout(() => {
+      if (!hostQRDone) {
+        alert('[HOST TIMEOUT]\nICE gathering did not complete after 5s.\nState: ' + pc.iceGatheringState + '\nForcing QR with whatever candidates we have.');
+        publishHostOffer();
+      }
+    }, 5000);
+
+  } catch(e) { err('startHost', e); }
+}
+
+async function acceptAnswer() {
+  try {
+    const raw = document.getElementById('answer-input').value.trim();
+    if (!raw) { alert('Paste the answer from the guest first.'); return; }
+
+    let answer;
+    try {
+      answer = decode(raw);
+    } catch(e) { err('decode answer', e); return; }
+
+    if (!pc) { alert('[acceptAnswer ERROR]\nNo peer connection exists. Did you click Host first?'); return; }
+
+    try {
+      await pc.setRemoteDescription(answer);
+    } catch(e) { err('setRemoteDescription (host accepting answer)', e); return; }
+
+  } catch(e) { err('acceptAnswer', e); }
+}
+
+function startGuest() {
+  try {
+    document.getElementById('role-section').style.display = 'none';
+    document.getElementById('guest-section').style.display = 'block';
+    document.getElementById('scan-section').style.display = 'block';
+    setStatus('Waiting for offer…', 'pending');
+  } catch(e) { err('startGuest', e); }
+}
+
+async function acceptOffer() {
+  try {
+    const raw = document.getElementById('offer-input').value.trim();
+    if (!raw) { alert('Paste or scan the host offer first.'); return; }
+
+    let offer;
+    try {
+      offer = decode(raw);
+    } catch(e) { err('decode offer', e); return; }
+
+    if (!window.RTCPeerConnection) {
+      alert('[GUEST ERROR]\nRTCPeerConnection is not available.\nSafari requires HTTPS for WebRTC.');
+      return;
+    }
+
+    try {
+      pc = new RTCPeerConnection(ICE);
+    } catch(e) { err('new RTCPeerConnection (guest)', e); return; }
+
+    pc.onicecandidateerror = (e) => {
+      alert('[GUEST ICE CANDIDATE ERROR]\nCode: ' + e.errorCode + '\nURL: ' + e.url + '\nText: ' + e.errorText);
+    };
+    pc.onconnectionstatechange = () => {
+      const s = pc.connectionState;
+      log('PC connection state: ' + s);
+      if (s === 'failed') alert('[GUEST PC]\nConnection state: failed\nICE state: ' + pc.iceConnectionState + '\nICE gathering: ' + pc.iceGatheringState);
+    };
+    pc.oniceconnectionstatechange = () => {
+      const s = pc.iceConnectionState;
+      log('ICE state: ' + s);
+      if (s === 'failed' || s === 'disconnected') alert('[GUEST ICE]\nICE connection state: ' + s);
+    };
+    let guestQRDone = false;
+    function publishGuestAnswer() {
+      if (guestQRDone) return;
+      guestQRDone = true;
+      try {
+        const encoded = encode(pc.localDescription);
+        document.getElementById('answer-text').value = encoded;
+        document.getElementById('answer-output-section').style.display = 'block';
+        makeQR('answer-qr', encoded);
+        setStatus('Show answer to host…', 'pending');
+        log('Answer QR generated (gathering: ' + pc.iceGatheringState + ')');
+      } catch(e) { err('publishGuestAnswer', e); }
+    }
+
+    pc.onicegatheringstatechange = () => {
+      log('ICE gathering: ' + pc.iceGatheringState);
+      if (pc.iceGatheringState === 'complete') publishGuestAnswer();
+    };
+
+    pc.onicecandidate = (evt) => {
+      try {
+        if (evt.candidate) {
+          log('guest candidate: ' + evt.candidate.candidate);
+        } else {
+          log('onicecandidate: null (gathering done)');
+          publishGuestAnswer();
+        }
+      } catch(e) { err('onicecandidate (guest)', e); }
+    };
+
+    pc.ondatachannel = (e) => {
+      try { setupDC(e.channel); }
+      catch(ex) { err('ondatachannel', ex); }
+    };
+
+    try {
+      await pc.setRemoteDescription(offer);
+    } catch(e) { err('setRemoteDescription (guest offer)', e); return; }
+
+    let answer;
+    try {
+      answer = await pc.createAnswer();
+    } catch(e) { err('createAnswer', e); return; }
+
+    try {
+      await pc.setLocalDescription(answer);
+    } catch(e) { err('setLocalDescription (guest answer)', e); return; }
+
+    setTimeout(() => {
+      if (!guestQRDone) {
+        alert('[GUEST TIMEOUT]\nICE gathering did not complete after 5s.\nState: ' + pc.iceGatheringState + '\nForcing QR with whatever candidates we have.');
+        publishGuestAnswer();
+      }
+    }, 5000);
+
+  } catch(e) { err('acceptOffer', e); }
+}
+
+async function startScan() {
+  try {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      alert('[SCAN ERROR]\nnavigator.mediaDevices.getUserMedia is not available.\nSafari requires HTTPS for camera access.');
+      return;
+    }
+
+    try {
+      scanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    } catch(e) { err('getUserMedia', e); return; }
+
+    const video = document.getElementById('scanner-video');
+    video.srcObject = scanStream;
+
+    try {
+      await video.play();
+    } catch(e) { err('video.play()', e); return; }
+
+    if ('BarcodeDetector' in window) {
+      let detector;
+      try {
+        detector = new BarcodeDetector({ formats: ['qr_code'] });
+      } catch(e) { err('new BarcodeDetector', e); return; }
+
+      scanInterval = setInterval(async () => {
+        try {
+          const codes = await detector.detect(video);
+          if (codes.length > 0) handleScanned(codes[0].rawValue);
+        } catch(e) {
+          // Only alert once, then clear interval to avoid spam
+          clearInterval(scanInterval);
+          err('BarcodeDetector.detect', e);
+        }
+      }, 500);
+    } else {
+      alert('[SCAN]\nBarcodeDetector is not available in this browser.\nPlease paste the offer string manually.');
+      log('BarcodeDetector not available — paste offer manually.', 'sys');
+    }
+  } catch(e) { err('startScan', e); }
+}
+
+function stopScan() {
+  try {
+    clearInterval(scanInterval);
+    if (scanStream) scanStream.getTracks().forEach(t => t.stop());
+  } catch(e) { err('stopScan', e); }
+}
+
+function handleScanned(text) {
+  try {
+    stopScan();
+    let obj;
+    try {
+      obj = decode(text);
+    } catch(e) { err('handleScanned decode', e); return; }
+
+    if (obj.type === 'offer') {
+      document.getElementById('offer-input').value = text;
+      acceptOffer();
+    } else if (obj.type === 'answer') {
+      document.getElementById('answer-input').value = text;
+      acceptAnswer();
+    } else {
+      alert('[SCAN]\nQR decoded but type is unrecognised: ' + obj.type + '\nFull value: ' + text.slice(0, 100));
+    }
+  } catch(e) { err('handleScanned', e); }
+}
+
+function send() {
+  try {
+    const input = document.getElementById('msg-input');
+    const text = input.value.trim();
+    if (!text) return;
+    if (!dc) { alert('[SEND ERROR]\nNo data channel exists yet.'); return; }
+    if (dc.readyState !== 'open') { alert('[SEND ERROR]\nData channel is not open.\nCurrent state: ' + dc.readyState); return; }
+    try {
+      dc.send(text);
+    } catch(e) { err('dc.send', e); return; }
+    log(text, 'me');
+    input.value = '';
+  } catch(e) { err('send', e); }
+}
+</script>
+</body>
+</html>

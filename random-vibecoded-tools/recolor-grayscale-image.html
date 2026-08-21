@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Grayscale Image Recoloring</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    canvas { border: 1px solid #ccc; display: block; margin-top: 10px; }
+    .color-picker { margin-bottom: 5px; }
+    #colorInputs { margin-top: 10px; }
+    button { margin-top: 10px; margin-right: 10px; }
+  </style>
+</head>
+<body>
+
+<h2>Recolor a Grayscale Image</h2>
+
+<input type="file" id="imageInput" accept="image/*"><br><br>
+
+<div id="colorInputs">
+  <button onclick="addColorPicker()">Add Color</button><br>
+</div>
+
+<button onclick="processImage()">Apply Colors</button>
+<button onclick="downloadImage()">Download Image</button>
+
+<canvas id="canvas"></canvas>
+
+<script>
+  const colorInputs = document.getElementById('colorInputs');
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  let image = new Image();
+
+  function addColorPicker() {
+    const input = document.createElement('input');
+    input.type = 'color';
+    input.className = 'color-picker';
+    colorInputs.insertBefore(input, colorInputs.lastElementChild);
+  }
+
+  document.getElementById('imageInput').addEventListener('change', function(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      image.onload = () => {
+        canvas.width = image.width;
+        canvas.height = image.height;
+        ctx.drawImage(image, 0, 0);
+      };
+      image.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+
+  function getGradientColors(colors) {
+    const gradient = [];
+    const steps = 256;
+    for (let i = 0; i < steps; i++) {
+      const t = i / (steps - 1);
+      const scaledT = t * (colors.length - 1);
+      const index = Math.floor(scaledT);
+      const localT = scaledT - index;
+
+      const color1 = hexToRgb(colors[index]);
+      const color2 = hexToRgb(colors[Math.min(index + 1, colors.length - 1)]);
+
+      const r = Math.round((1 - localT) * color1.r + localT * color2.r);
+      const g = Math.round((1 - localT) * color1.g + localT * color2.g);
+      const b = Math.round((1 - localT) * color1.b + localT * color2.b);
+
+      gradient.push({ r, g, b });
+    }
+    return gradient;
+  }
+
+  function hexToRgb(hex) {
+    const bigint = parseInt(hex.slice(1), 16);
+    return {
+      r: (bigint >> 16) & 255,
+      g: (bigint >> 8) & 255,
+      b: bigint & 255
+    };
+  }
+
+  function processImage() {
+    const pickers = document.querySelectorAll('.color-picker');
+    const colors = Array.from(pickers).map(p => p.value);
+
+    if (colors.length < 2) {
+      alert("Please select at least two colors.");
+      return;
+    }
+
+    ctx.drawImage(image, 0, 0);
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+    const gradient = getGradientColors(colors);
+
+    for (let i = 0; i < data.length; i += 4) {
+      const gray = data[i]; // assuming grayscale input (R=G=B)
+      const color = gradient[gray];
+      data[i] = color.r;
+      data[i + 1] = color.g;
+      data[i + 2] = color.b;
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+  }
+
+  function downloadImage() {
+    const link = document.createElement('a');
+    link.download = 'recolor.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  }
+</script>
+
+</body>
+</html>

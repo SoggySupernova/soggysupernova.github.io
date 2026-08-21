@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Waveform Drawer — Single Cycle Player</title>
+  <style>
+    :root{
+      --bg:#0f1720;
+      --card:#111827;
+      --text:#e6eef6;
+      --muted:#9fb0c8;
+      --accent:#4f46e5;
+      --danger:#ef4444;
+    }
+    html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;}
+    body{background:linear-gradient(180deg,#061225 0%, var(--bg) 100%);color:var(--text);display:flex;align-items:center;justify-content:center;padding:18px;box-sizing:border-box;}
+    .card{width:100%;max-width:820px;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:12px;padding:14px;box-shadow:0 6px 30px rgba(2,6,23,0.6);box-sizing:border-box;}
+    header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}
+    h1{font-size:16px;margin:0;color:var(--text)}
+    p.lead{margin:0;color:var(--muted);font-size:13px}
+    canvas{width:100%;height:200px;border-radius:8px;background:linear-gradient(180deg,#071628,#061225);touch-action:none;display:block;}
+    .controls{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;align-items:center}
+    .group{display:flex;flex-direction:column;gap:6px;min-width:120px;flex:1;}
+    label{font-size:12px;color:var(--muted)}
+    input[type="range"]{width:100%}
+    .row{display:flex;gap:8px;align-items:center}
+    button{background:var(--accent);color:white;border:0;padding:10px 12px;border-radius:8px;font-weight:600;min-width:92px}
+    button.secondary{background:transparent;border:1px solid rgba(255,255,255,0.06);color:var(--text)}
+    button.danger{background:var(--danger)}
+    .small{font-size:13px;color:var(--muted)}
+    select,input[type="number"]{background:transparent;border:1px solid rgba(255,255,255,0.04);padding:8px;border-radius:8px;color:var(--text)}
+    footer{margin-top:10px;color:var(--muted);font-size:12px}
+    @media (max-width:520px){
+      canvas{height:180px}
+      .group{min-width:100%}
+      header{flex-direction:column;align-items:flex-start;gap:6px}
+    }
+  </style>
+</head>
+<body>
+  <div class="card" role="application" aria-label="Waveform drawer and player">
+    <header>
+      <div>
+        <h1>Waveform Drawer — Single-cycle</h1>
+        <p class="lead">Draw one period of a waveform (touch or mouse). Play looped at different frequencies.</p>
+      </div>
+      <div class="small">Mobile-friendly • Web Audio</div>
+    </header>
+
+    <canvas id="waveCanvas" width="1200" height="400" aria-label="Waveform drawing canvas"></canvas>
+
+    <div class="controls">
+      <div class="group">
+        <label for="resolution">Resolution (samples per cycle): <span id="resVal">512</span></label>
+        <input id="resolution" type="range" min="64" max="4096" value="512" step="1" />
+      </div>
+
+      <div class="group">
+        <label for="frequency">Frequency (Hz)</label>
+        <div class="row">
+          <input id="frequency" type="range" min="20" max="5000" value="440" step="1" />
+          <input id="freqNum" type="number" min="1" max="20000" value="440" style="width:92px" />
+        </div>
+      </div>
+
+      <div class="group">
+        <label>Playback</label>
+        <div class="row">
+          <button id="playBtn">Play</button>
+          <button id="stopBtn" class="secondary">Stop</button>
+          <button id="clearBtn" class="secondary">Clear</button>
+        </div>
+      </div>
+
+      <div class="group">
+        <label>Preset</label>
+        <div class="row">
+          <button id="sineBtn" class="secondary">Sine</button>
+          <button id="sawBtn" class="secondary">Saw</button>
+          <button id="squareBtn" class="secondary">Square</button>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      Draw with finger or mouse. Use resolution to change sample detail. Audio starts only after a user gesture (Play).
+    </footer>
+  </div>
+
+<script>
+(function(){
+  // Elements
+  const canvas = document.getElementById('waveCanvas');
+  const ctx = canvas.getContext('2d', {alpha:false});
+  const resRange = document.getElementById('resolution'), resVal = document.getElementById('resVal');
+  const freqRange = document.getElementById('frequency'), freqNum = document.getElementById('freqNum');
+  const playBtn = document.getElementById('playBtn'), stopBtn = document.getElementById('stopBtn');
+  const clearBtn = document.getElementById('clearBtn');
+  const sineBtn = document.getElementById('sineBtn'), sawBtn = document.getElementById('sawBtn'), squareBtn = document.getElementById('squareBtn');
+
+  // Canvas drawing state
+  let drawing = false;
+  let drawPoints = []; // normalized y values [-1..1] per pixel x
+  const width = canvas.width;
+  const height = canvas.height;
+
+  // Audio state
+  let audioCtx = null;
+  let sourceNode = null;
+  let currentBuffer = null;
+
+  // Default samples per cycle
+  let samplesPerCycle = Number(resRange.value);
+
+  // Initialize drawPoints as a flat zeroed line (center)
+  function resetDrawPoints() {
+    drawPoints = new Float32Array(width);
+    // middle line => zero
+    for (let i=0;i<width;i++) drawPoints[i] = 0;
+    drawCanvas();
+  }
+
+  // Map screen x to drawPoints index
+  function pointerToIndex(x) {
+    const rect = canvas.getBoundingClientRect();
+    const rel = Math.min(Math.max(0, x - rect.left), rect.width);
+    // map to pixel coordinates in actual canvas width
+    const scale = canvas.width / rect.width;
+    return Math.floor(rel * scale);
+  }
+
+  // Convert canvas y to normalized sample [-1..1]
+  function yToNorm(y) {
+    const rect = canvas.getBoundingClientRect();
+    const relY = Math.min(Math.max(0, y - rect.top), rect.height);
+    const scaleY = canvas.height / rect.height;
+    const cy = relY * scaleY;
+    // top -> -1, bottom -> +1, center -> 0
+    return 1 - (2 * cy / canvas.height);
+  }
+
+  // Draw canvas visual
+  function drawCanvas() {
+    // background
+    ctx.fillStyle = '#071827';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    // grid center line
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, canvas.height/2);
+    ctx.lineTo(canvas.width, canvas.height/2);
+    ctx.stroke();
+
+    // waveform
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#55c3ff';
+    ctx.beginPath();
+    for (let i=0;i<canvas.width;i++){
+      const v = drawPoints[i] ?? 0;
+      const y = (1 - v) * canvas.height / 2;
+      if (i===0) ctx.moveTo(i, y);
+      else ctx.lineTo(i, y);
+    }
+    ctx.stroke();
+
+    // border
+    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(0.5,0.5,canvas.width-1,canvas.height-1);
+  }
+
+  // Interpolation helper to generate N samples from drawn pixels
+  function generateCycleSamples(N) {
+    const samples = new Float32Array(N);
+    // Map N sample positions across canvas width
+    for (let i=0;i<N;i++){
+      const x = i * (canvas.width / N);
+      // linear interpolation between integer pixel positions
+      const x0 = Math.floor(x);
+      const x1 = Math.min(canvas.width-1, x0 + 1);
+      const t = x - x0;
+      const v0 = drawPoints[x0] ?? 0;
+      const v1 = drawPoints[x1] ?? 0;
+      samples[i] = v0 * (1 - t) + v1 * t;
+    }
+    return samples;
+  }
+
+  // Create AudioBuffer from samples (single-cycle) and set up source
+  function createBufferFromCycle(samples) {
+    if (!audioCtx) return null;
+    const sampleRate = audioCtx.sampleRate;
+    const N = samples.length;
+    // We'll create a buffer with length N and sampleRate = audioCtx.sampleRate
+    const buffer = audioCtx.createBuffer(1, N, sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i=0;i<N;i++) data[i] = samples[i];
+    return buffer;
+  }
+
+  // Play at frequency (Hz)
+  function playAtFrequency(freq) {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    // stop previous
+    if (sourceNode) {
+      try { sourceNode.stop(); } catch(e){}
+      try { sourceNode.disconnect(); } catch(e){}
+      sourceNode = null;
+    }
+
+    // generate buffer from current draw
+    const samples = generateCycleSamples(samplesPerCycle);
+    currentBuffer = createBufferFromCycle(samples);
+    if (!currentBuffer) return;
+
+    // create source and loop
+    const src = audioCtx.createBufferSource();
+    src.buffer = currentBuffer;
+    src.loop = true;
+    // base frequency of the buffer = sampleRate / N
+    const baseFreq = audioCtx.sampleRate / samplesPerCycle;
+    // playbackRate to reach desired freq
+    src.playbackRate.value = freq / baseFreq;
+    // small fade-in with GainNode
+    const gain = audioCtx.createGain();
+    gain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.9, audioCtx.currentTime + 0.02);
+
+    src.connect(gain).connect(audioCtx.destination);
+    src.start();
+    sourceNode = src;
+  }
+
+  function stopAudio() {
+    if (audioCtx && sourceNode) {
+      try {
+        const gainNode = audioCtx.createGain();
+        sourceNode.disconnect();
+      } catch(e){}
+      try { sourceNode.stop(); } catch(e){}
+      try { sourceNode.disconnect(); } catch(e){}
+      sourceNode = null;
+    }
+  }
+
+  // UI handlers
+  resRange.addEventListener('input', () => {
+    samplesPerCycle = Number(resRange.value);
+    resVal.textContent = samplesPerCycle;
+    // regenerate buffer visually (no need to re-sample the drawn pixels)
+    // nothing else required until playback.
+  });
+
+  freqRange.addEventListener('input', () => {
+    freqNum.value = freqRange.value;
+  });
+  freqNum.addEventListener('input', () => {
+    let v = Number(freqNum.value);
+    if (isNaN(v) || v <= 0) v = 440;
+    v = Math.min(Math.max(1, v), 20000);
+    freqNum.value = v;
+    freqRange.value = Math.min(Math.max(20, v), 5000);
+  });
+
+  playBtn.addEventListener('click', async () => {
+    // ensure user gesture to resume audio context
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    } else if (audioCtx.state === 'suspended') {
+      await audioCtx.resume();
+    }
+    const freq = Number(freqNum.value) || Number(freqRange.value) || 440;
+    playAtFrequency(freq);
+  });
+
+  stopBtn.addEventListener('click', () => {
+    stopAudio();
+  });
+
+  clearBtn.addEventListener('click', () => {
+    resetDrawPoints();
+  });
+
+  sineBtn.addEventListener('click', () => {
+    // generate sine across canvas
+    for (let x=0;x<canvas.width;x++){
+      const t = x / canvas.width;
+      drawPoints[x] = Math.sin(2 * Math.PI * t);
+    }
+    drawCanvas();
+  });
+  sawBtn.addEventListener('click', () => {
+    for (let x=0;x<canvas.width;x++){
+      const t = x / canvas.width;
+      drawPoints[x] = 2 * (t - Math.floor(t + 0.5));
+    }
+    drawCanvas();
+  });
+  squareBtn.addEventListener('click', () => {
+    for (let x=0;x<canvas.width;x++){
+      const t = x / canvas.width;
+      drawPoints[x] = (t < 0.5) ? 1 : -1;
+    }
+    drawCanvas();
+  });
+
+  // Pointer events for mouse + touch
+  function startDrawing(evt) {
+    evt.preventDefault();
+    drawing = true;
+    const x = (evt.touches ? evt.touches[0].clientX : evt.clientX);
+    const y = (evt.touches ? evt.touches[0].clientY : evt.clientY);
+    const idx = pointerToIndex(x);
+    if (idx >= 0 && idx < canvas.width) drawPoints[idx] = yToNorm(y);
+    lastX = idx;
+    drawCanvas();
+  }
+  let lastX = -1;
+  function continueDrawing(evt) {
+    if (!drawing) return;
+    evt.preventDefault();
+    const x = (evt.touches ? evt.touches[0].clientX : evt.clientX);
+    const y = (evt.touches ? evt.touches[0].clientY : evt.clientY);
+    const idx = pointerToIndex(x);
+    if (idx < 0 || idx >= canvas.width) return;
+    const val = yToNorm(y);
+    // linear interpolation from lastX to idx to fill gaps
+    if (lastX < 0) {
+      drawPoints[idx] = val;
+    } else {
+      const a = lastX, b = idx;
+      const dist = Math.abs(b - a);
+      if (dist === 0) {
+        drawPoints[idx] = val;
+      } else {
+        for (let i=0;i<=dist;i++){
+          const t = i / dist;
+          const xi = a + (b > a ? i : -i);
+          if (xi < 0 || xi >= canvas.width) continue;
+          const prevVal = drawPoints[a] ?? 0;
+          const v = prevVal * (1 - t) + val * t;
+          drawPoints[xi] = v;
+        }
+      }
+    }
+    lastX = idx;
+    drawCanvas();
+  }
+  function endDrawing(evt) {
+    drawing = false;
+    lastX = -1;
+  }
+
+  // Mouse
+  canvas.addEventListener('mousedown', startDrawing);
+  window.addEventListener('mousemove', continueDrawing);
+  window.addEventListener('mouseup', endDrawing);
+  // Touch
+  canvas.addEventListener('touchstart', startDrawing, {passive:false});
+  window.addEventListener('touchmove', continueDrawing, {passive:false});
+  window.addEventListener('touchend', endDrawing);
+
+  // Resize canvas for higher resolution on high-DPI devices
+  function adjustCanvasSize() {
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.max(800, Math.floor(rect.width * dpr));
+    canvas.height = Math.max(200, Math.floor(rect.height * dpr));
+    // If drawPoints length mismatches, rebuild sampling across new width
+    resetDrawPoints();
+  }
+
+  // Initial setup
+  (function init(){
+    // set canvas bounding rect for drawing coordinates
+    // set a default waveform
+    adjustCanvasSize();
+    // default to sine
+    sineBtn.click();
+    // keep displayed resolution value
+    resVal.textContent = samplesPerCycle;
+    // update freqNum when freqRange changes while sliding
+    freqRange.addEventListener('input', () => { freqNum.value = freqRange.value; });
+    // On orientation/resize, recalc
+    window.addEventListener('resize', () => {
+      // Keep the user's current drawing by resampling into the new canvas width:
+      // We'll sample the current displayed waveform into a temporary array and then rebuild drawPoints.
+      const old = new Float32Array(drawPoints);
+      // compute new size
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const newW = Math.max(800, Math.floor(rect.width * dpr));
+      // produce resampled array:
+      const resampled = new Float32Array(newW);
+      for (let i=0;i<newW;i++){
+        const t = i / newW;
+        const srcX = Math.floor(t * old.length);
+        resampled[i] = old[srcX] ?? 0;
+      }
+      const prevWidth = canvas.width;
+      canvas.width = newW;
+      canvas.height = Math.max(200, Math.floor(rect.height * dpr));
+      drawPoints = resampled;
+      drawCanvas();
+    });
+  })();
+
+})();
+</script>
+</body>
+</html>

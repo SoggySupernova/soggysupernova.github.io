@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Tone.js Pitch & Tempo Control</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <!-- Tone.js -->
+  <script src="https://unpkg.com/tone@14.8.49/build/Tone.js"></script>
+
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      padding: 20px;
+    }
+
+    button {
+      margin: 4px;
+      padding: 10px 14px;
+      font-size: 16px;
+    }
+
+    .group {
+      margin-bottom: 16px;
+    }
+
+    input[type="file"] {
+      margin-bottom: 12px;
+    }
+  </style>
+</head>
+<body>
+
+  <h3>Audio Player (Tone.js)</h3>
+
+  <input type="file" id="fileInput" accept="audio/*">
+
+  <div class="group">
+    <button id="playBtn">Play</button>
+    <button id="stopBtn">Stop</button>
+  </div>
+
+  <div class="group">
+    <strong>Tempo</strong><br>
+    <button data-tempo="0.5">0.5x</button>
+    <button data-tempo="0.75">0.75x</button>
+    <button data-tempo="1">1x</button>
+    <button data-tempo="1.5">1.5x</button>
+    <button data-tempo="2">2x</button>
+  </div>
+
+  <div class="group">
+    <strong>Pitch</strong><br>
+    <button data-pitch="-12">-12</button>
+    <button data-pitch="-6">-6</button>
+    <button data-pitch="0">0</button>
+    <button data-pitch="6">+6</button>
+    <button data-pitch="12">+12</button>
+  </div>
+
+<script>
+let player;
+let pitchShift;
+let timeStretch;
+let audioBuffer;
+
+/* Required for iOS Safari */
+async function unlockAudio() {
+  if (Tone.context.state !== "running") {
+    await Tone.start();
+  }
+}
+
+document.getElementById("fileInput").addEventListener("change", async (e) => {
+  await unlockAudio();
+
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const arrayBuffer = await file.arrayBuffer();
+  audioBuffer = await Tone.getContext().rawContext.decodeAudioData(arrayBuffer);
+
+  if (player) {
+    player.dispose();
+    pitchShift.dispose();
+    timeStretch.dispose();
+  }
+
+  pitchShift = new Tone.PitchShift(0);
+  timeStretch = new Tone.TimeStretch(1);
+
+  player = new Tone.Player({
+    url: audioBuffer,
+    loop: true,
+    autostart: false
+  });
+
+  player.chain(timeStretch, pitchShift, Tone.Destination);
+});
+
+document.getElementById("playBtn").addEventListener("click", async () => {
+  await unlockAudio();
+  if (player && !player.state === "started") {
+    player.start();
+  }
+});
+
+document.getElementById("stopBtn").addEventListener("click", () => {
+  if (player) {
+    player.stop();
+  }
+});
+
+/* Tempo buttons */
+document.querySelectorAll("[data-tempo]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    if (timeStretch) {
+      timeStretch.playbackRate = parseFloat(btn.dataset.tempo);
+    }
+  });
+});
+
+/* Pitch buttons */
+document.querySelectorAll("[data-pitch]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    if (pitchShift) {
+      pitchShift.pitch = parseFloat(btn.dataset.pitch);
+    }
+  });
+});
+</script>
+
+</body>
+</html>

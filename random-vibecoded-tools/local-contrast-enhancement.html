@@ -40,6 +40,11 @@
     <input type="range" id="amount" min="0" max="3" step="0.1" value="1.0">
     <span id="amountVal">1.0</span>
   </label>
+
+  <label>
+    <input type="checkbox" id="luminanceOnly">
+    Affect luminance only
+  </label>
 </div>
 
 <canvas id="canvas"></canvas>
@@ -53,6 +58,7 @@ const radiusSlider = document.getElementById("radius");
 const amountSlider = document.getElementById("amount");
 const radiusVal = document.getElementById("radiusVal");
 const amountVal = document.getElementById("amountVal");
+const luminanceOnly = document.getElementById("luminanceOnly");
 
 let originalImageData = null;
 
@@ -63,6 +69,10 @@ radiusSlider.oninput = () => {
 
 amountSlider.oninput = () => {
   amountVal.textContent = amountSlider.value;
+  if (originalImageData) enhance();
+};
+
+luminanceOnly.onchange = () => {
   if (originalImageData) enhance();
 };
 
@@ -87,11 +97,34 @@ function enhance() {
   const dst = ctx.createImageData(src.width, src.height);
 
   for (let i = 0; i < src.data.length; i += 4) {
-    for (let c = 0; c < 3; c++) {
-      const o = src.data[i + c];
-      const b = blurred.data[i + c];
-      let v = o + amount * (o - b);
-      dst.data[i + c] = Math.max(0, Math.min(255, v));
+    if (luminanceOnly.checked) {
+      // Rec. 709 luma. The enhancement is applied only to Y;
+      // Cb/Cr are reconstructed unchanged, so chroma is preserved.
+      const r = src.data[i];
+      const g = src.data[i + 1];
+      const b = src.data[i + 2];
+
+      const br = blurred.data[i];
+      const bg = blurred.data[i + 1];
+      const bb = blurred.data[i + 2];
+
+      const y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      const by = 0.2126 * br + 0.7152 * bg + 0.0722 * bb;
+      const newY = y + amount * (y - by);
+
+      // Preserve the original chroma by shifting all RGB channels
+      // according to the luminance change.
+      const delta = newY - y;
+      dst.data[i]     = Math.max(0, Math.min(255, r + delta));
+      dst.data[i + 1] = Math.max(0, Math.min(255, g + delta));
+      dst.data[i + 2] = Math.max(0, Math.min(255, b + delta));
+    } else {
+      for (let c = 0; c < 3; c++) {
+        const o = src.data[i + c];
+        const b = blurred.data[i + c];
+        const v = o + amount * (o - b);
+        dst.data[i + c] = Math.max(0, Math.min(255, v));
+      }
     }
     dst.data[i + 3] = 255;
   }

@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Blur / Unsharp Reaction Diffusion</title>
+<style>
+body{font:14px system-ui,sans-serif;margin:16px;max-width:900px}
+canvas{display:block;max-width:100%;height:auto;background:#fff;border:1px solid #ccc;margin:12px 0}
+label{display:inline-flex;align-items:center;gap:6px;margin:4px 10px 4px 0}
+input[type=number],input[type=range]{width:90px}
+button,input{font:inherit}
+#status{color:#666}
+.controls{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center}
+</style>
+</head>
+<body>
+<h3>Blur / Unsharp Reaction-Diffusion</h3>
+
+<input id="file" type="file" accept="image/*">
+<div class="controls">
+  <label>Iterations <input id="iterations" type="number" min="1" max="500" value="30"></label>
+  <label>Blur radius <input id="radius" type="number" min=".2" max="20" step=".1" value="2.5"></label>
+  <label>Unsharp amount <input id="amount" type="number" min="0" max="10" step=".05" value="1.8"></label>
+  <label>Threshold <input id="threshold" type="range" min="0" max="1" step=".001" value=".5"></label>
+  <label>Contrast <input id="contrast" type="range" min=".1" max="5" step=".01" value="1.2"></label>
+  <label>Mix <input id="mix" type="range" min="0" max="1" step=".01" value=".85"></label>
+  <label><input id="invert" type="checkbox"> Invert</label>
+</div>
+
+<div class="controls">
+  <button id="run">Run</button>
+  <button id="step">Step</button>
+  <button id="reset">Reset</button>
+  <button id="export">Export PNG</button>
+  <span id="status">Upload an image.</span>
+</div>
+
+<canvas id="canvas"></canvas>
+
+<script>
+"use strict";
+
+const file = document.getElementById("file");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d", {willReadFrequently:true});
+const status = document.getElementById("status");
+
+const iterations = document.getElementById("iterations");
+const radius = document.getElementById("radius");
+const amount = document.getElementById("amount");
+const threshold = document.getElementById("threshold");
+const contrast = document.getElementById("contrast");
+const mix = document.getElementById("mix");
+const invert = document.getElementById("invert");
+
+let original = null;
+let current = null;
+let running = false;
+
+function clamp(x){ return x < 0 ? 0 : x > 1 ? 1 : x; }
+
+function gaussianKernel(r){
+  const sigma = Math.max(.05, r);
+  const n = Math.max(1, Math.ceil(sigma * 3));
+  const k = new Float32Array(n * 2 + 1);
+  let sum = 0;
+  for(let i=-n;i<=n;i++){
+    const v = Math.exp(-(i*i)/(2*sigma*sigma));
+    k[i+n] = v; sum += v;
+  }
+  for(let i=0;i<k.length;i++) k[i] /= sum;
+  return {k,n};
+}
+
+/* One reaction-diffusion-like iteration:
+   blur -> unsharp mask -> nonlinear contrast/threshold -> mix.
+   The threshold is soft enough to retain the organic boundaries. */
+function stepImage(src,w,h){
+  const {k,n} = gaussianKernel(+radius.value);
+  const tmp = new Float32Array(w*h);
+  const blur = new Float32Array(w*h);
+
+  // Horizontal blur
+  for(let y=0;y<h;y++){
+    const row=y*w;
+    for(let x=0;x<w;x++){
+      let s=0;
+      for(let j=-n;j<=n;j++){
+        let xx=x+j;
+        if(xx<0) xx=0;
+        if(xx>=w) xx=w-1;
+        s += src[row+xx]*k[j+n];
+      }
+      tmp[row+x]=s;
+    }
+  }
+
+  // Vertical blur
+  for(let y=0;y<h;y++){
+    for(let x=0;x<w;x++){
+      let s=0;
+      for(let j=-n;j<=n;j++){
+        let yy=y+j;
+        if(yy<0) yy=0;
+        if(yy>=h) yy=h-1;
+        s += tmp[yy*w+x]*k[j+n];
+      }
+      blur[y*w+x]=s;
+    }
+  }
+
+  const out = new Float32Array(w*h);
+  const a=+amount.value, c=+contrast.value, t=+threshold.value, m=+mix.value;
+
+  for(let i=0;i<src.length;i++){
+    // Unsharp mask: original + amount * (original - blurred).
+    let v = src[i] + a * (src[i] - blur[i]);
+
+    // Contrast around the threshold. This nonlinearity is what makes
+    // repeated iterations settle into blob/maze-like structures.
+    v = (v - t) * c + t;
+    v = clamp(v);
+
+    // Soft threshold using a small transition band.
+    const edge = .08;
+    let q = (v - (t-edge)) / (2*edge);
+    q = clamp(q);
+    q = q*q*(3-2*q);
+
+    out[i] = src[i]*(1-m) + q*m;
+  }
+  return out;
+}
+
+function imageToFloat(imageData){
+  const d=imageData.data, a=new Float32Array(imageData.width*imageData.height);
+  for(let i=0,p=0;i<a.length;i++,p+=4){
+    a[i]=(0.299*d[p]+0.587*d[p+1]+0.114*d[p+2])/255;
+  }
+  return a;
+}
+
+function floatToCanvas(a,w,h){
+  const out=ctx.createImageData(w,h), d=out.data;
+  const inv=invert.checked;
+  for(let i=0,p=0;i<a.length;i++,p+=4){
+    let v=clamp(a[i]);
+    if(inv) v=1-v;
+    v=Math.round(v*255);
+    d[p]=d[p+1]=d[p+2]=v;
+    d[p+3]=255;
+  }
+  ctx.putImageData(out,0,0);
+}
+
+function draw(){
+  if(!current) return;
+  floatToCanvas(current,canvas.width,canvas.height);
+}
+
+function setStatus(s){status.textContent=s;}
+
+file.addEventListener("change", async ()=>{
+  const f=file.files[0];
+  if(!f) return;
+  const img=new Image();
+  img.onload=()=>{
+    // Cap the working size for responsive iteration. Export is at this size.
+    const max=1024;
+    const scale=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight));
+    canvas.width=Math.max(1,Math.round(img.naturalWidth*scale));
+    canvas.height=Math.max(1,Math.round(img.naturalHeight*scale));
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.drawImage(img,0,0,canvas.width,canvas.height);
+    const data=ctx.getImageData(0,0,canvas.width,canvas.height);
+    original=imageToFloat(data);
+    current=new Float32Array(original);
+    draw();
+    setStatus(`${canvas.width} × ${canvas.height}`);
+  };
+  img.src=URL.createObjectURL(f);
+});
+
+document.getElementById("reset").onclick=()=>{
+  if(!original)return;
+  current=new Float32Array(original);
+  draw();
+  setStatus("Reset");
+};
+
+document.getElementById("step").onclick=()=>{
+  if(!current)return;
+  current=stepImage(current,canvas.width,canvas.height);
+  draw();
+  setStatus("1 iteration");
+};
+
+document.getElementById("run").onclick=async()=>{
+  if(!current || running)return;
+  running=true;
+  const n=Math.max(1,+iterations.value|0);
+  const start=performance.now();
+  for(let i=0;i<n;i++){
+    current=stepImage(current,canvas.width,canvas.height);
+    if(i%2===0 || i===n-1){
+      draw();
+      setStatus(`Iteration ${i+1}/${n}`);
+      await new Promise(requestAnimationFrame);
+    }
+  }
+  setStatus(`${n} iterations in ${((performance.now()-start)/1000).toFixed(2)} s`);
+  running=false;
+};
+
+document.getElementById("export").onclick=()=>{
+  if(!current)return;
+  canvas.toBlob(blob=>{
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(blob);
+    a.download="reaction-diffusion.png";
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  },"image/png");
+};
+</script>
+</body>
+</html>

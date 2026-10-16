@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Image Difference</title>
+<style>
+  body { font: 14px sans-serif; margin: 20px; }
+  canvas { max-width: 100%; image-rendering: auto; display: block; margin-top: 12px; }
+</style>
+</head>
+<body>
+  <input id="a" type="file" accept="image/*">
+  <input id="b" type="file" accept="image/*">
+  <canvas id="canvas"></canvas>
+
+<script>
+const inputA = document.getElementById("a");
+const inputB = document.getElementById("b");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+let imgA, imgB;
+
+function load(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(img.src);
+      resolve(img);
+    };
+    img.onerror = reject;
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+async function update() {
+  if (!imgA || !imgB) return;
+
+  // Use the first image's dimensions.
+  canvas.width = imgA.naturalWidth;
+  canvas.height = imgA.naturalHeight;
+
+  const w = canvas.width, h = canvas.height;
+
+  // Draw image A.
+  ctx.globalCompositeOperation = "source-over";
+  ctx.drawImage(imgA, 0, 0, w, h);
+
+  const a = ctx.getImageData(0, 0, w, h);
+
+  // Draw image B, then invert it.
+  ctx.clearRect(0, 0, w, h);
+  ctx.drawImage(imgB, 0, 0, w, h);
+  const b = ctx.getImageData(0, 0, w, h);
+
+  // Invert B and average it with A.
+  // Identical pixels become 127.5 gray; differences become visible.
+  for (let i = 0; i < a.data.length; i += 4) {
+    a.data[i]     = (a.data[i]     + (255 - b.data[i]))     / 2;
+    a.data[i + 1] = (a.data[i + 1] + (255 - b.data[i + 1])) / 2;
+    a.data[i + 2] = (a.data[i + 2] + (255 - b.data[i + 2])) / 2;
+    a.data[i + 3] = 255;
+  }
+
+  ctx.putImageData(a, 0, 0);
+}
+
+inputA.onchange = async () => { imgA = await load(inputA.files[0]); update(); };
+inputB.onchange = async () => { imgB = await load(inputB.files[0]); update(); };
+</script>
+</body>
+</html>

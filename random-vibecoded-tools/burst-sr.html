@@ -1,0 +1,2391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Burst stack — live similarity-aligned accumulation</title>
+<style>
+  :root{
+    --bg: #0d1210;
+    --panel: #141b18;
+    --panel-2: #101613;
+    --border: #26332c;
+    --text: #e9efe9;
+    --text-dim: #8fa199;
+    --text-faint: #5b6a63;
+    --accent: #ffb020;
+    --accent-dim: #7a5416;
+    --ok: #6fdc8c;
+    --warn: #ffcf5c;
+    --bad: #ff6b5e;
+    --cyan: #5fd0c9;
+    --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  *{ box-sizing: border-box; }
+  html,body{
+    margin:0; padding:0; background:var(--bg); color:var(--text);
+    font-family:var(--font-ui); height:100%;
+  }
+  .app{
+    display:flex; flex-direction:column; min-height:100vh;
+  }
+  header{
+    padding:20px 24px 14px;
+    border-bottom:1px solid var(--border);
+  }
+  header h1{
+    margin:0 0 4px; font-size:19px; font-weight:600; letter-spacing:-0.01em;
+  }
+  header p{
+    margin:0; color:var(--text-dim); font-size:13.5px; max-width:62ch; line-height:1.5;
+  }
+  .layout{
+    display:grid;
+    grid-template-columns: minmax(0, 1.7fr) minmax(280px, 1fr);
+    gap:1px;
+    background:var(--border);
+    flex:1;
+  }
+  @media (max-width: 880px){
+    .layout{ grid-template-columns: 1fr; }
+  }
+  .stage{
+    background:var(--panel-2);
+    padding:20px;
+    display:flex; flex-direction:column; gap:14px; min-width:0;
+  }
+  .canvas-wrap{
+    position:relative;
+    width:100%;
+    background:#000;
+    border:1px solid var(--border);
+    border-radius:3px;
+    overflow:hidden;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .canvas-wrap canvas{
+    display:block; width:100%; height:auto;
+  }
+  #overlay, #residCanvas{
+    position:absolute; inset:0; pointer-events:none;
+  }
+  .empty-state{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    color:var(--text-faint); font-size:13.5px; text-align:center; padding:20px; line-height:1.6;
+  }
+  .pip-row{
+    display:flex; gap:14px; align-items:flex-start; flex-wrap:wrap;
+  }
+  .pip{
+    width:150px; flex-shrink:0;
+  }
+  .pip video{
+    width:100%; display:block; background:#000; border:1px solid var(--border); border-radius:3px;
+  }
+  .pip-label{
+    font-size:11px; color:var(--text-faint); margin-top:5px; font-family:var(--font-mono);
+  }
+  .status-line{
+    display:flex; gap:10px; flex-wrap:wrap; align-items:center;
+    font-family:var(--font-mono); font-size:12.5px; color:var(--text-dim);
+  }
+  .pill{
+    display:inline-flex; align-items:center; gap:6px;
+    padding:3px 9px; border:1px solid var(--border); border-radius:20px;
+    background:var(--panel);
+  }
+  .dot{ width:7px; height:7px; border-radius:50%; background:var(--text-faint); flex-shrink:0; }
+  .dot.ok{ background:var(--ok); box-shadow:0 0 6px var(--ok); }
+  .dot.warn{ background:var(--warn); box-shadow:0 0 6px var(--warn); }
+  .dot.bad{ background:var(--bad); box-shadow:0 0 6px var(--bad); }
+
+  aside{
+    background:var(--panel);
+    padding:20px;
+    display:flex; flex-direction:column; gap:22px;
+    overflow-y:auto;
+  }
+  .section-title{
+    font-size:11.5px; text-transform:none; color:var(--text-faint);
+    margin:0 0 10px; font-family:var(--font-mono);
+  }
+  .btn-row{ display:flex; gap:8px; flex-wrap:wrap; }
+  button{
+    font-family:var(--font-ui); font-size:13px; font-weight:500;
+    padding:9px 14px; border-radius:3px; border:1px solid var(--border);
+    background:var(--panel-2); color:var(--text); cursor:pointer;
+    transition:border-color .15s, background .15s;
+  }
+  button:hover{ border-color:var(--text-faint); }
+  button:disabled{ opacity:.4; cursor:default; }
+  button.primary{
+    background:var(--accent); border-color:var(--accent); color:#241a04;
+  }
+  button.primary:hover{ background:#ffbf47; }
+  button.ghost{ background:transparent; }
+  input[type=file]{ display:none; }
+
+  .field{ display:flex; flex-direction:column; gap:6px; margin-bottom:16px; }
+  .field:last-child{ margin-bottom:0; }
+  .field label{ font-size:12.5px; color:var(--text-dim); display:flex; justify-content:space-between; }
+  .field label span.val{ color:var(--text); font-family:var(--font-mono); font-size:12px; }
+  select, input[type=range]{
+    width:100%;
+  }
+  select{
+    font-family:var(--font-ui); font-size:13px; background:var(--panel-2); color:var(--text);
+    border:1px solid var(--border); border-radius:3px; padding:7px 8px;
+  }
+  input[type=range]{
+    -webkit-appearance:none; height:3px; background:var(--border); border-radius:2px; outline:none;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:13px; height:13px; border-radius:50%;
+    background:var(--accent); cursor:pointer; margin-top:-5px;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:13px; height:13px; border-radius:50%; background:var(--accent); border:none; cursor:pointer;
+  }
+  .check-row{ display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text-dim); }
+  .check-row input{ accent-color:var(--accent); }
+
+  .stats{
+    font-family:var(--font-mono); font-size:12.5px;
+    border-top:1px solid var(--border);
+  }
+  .stat-row{
+    display:flex; justify-content:space-between; padding:7px 0;
+    border-bottom:1px solid var(--border);
+  }
+  .stat-row .k{ color:var(--text-faint); }
+  .stat-row .v{ color:var(--text); }
+  .note{
+    font-size:12px; color:var(--text-faint); line-height:1.6;
+  }
+  .error-banner{
+    background:#3a1512; border:1px solid #6b2620; color:#ffb3ac;
+    padding:10px 14px; border-radius:3px; font-size:13px; display:none;
+  }
+
+  /* mode toggle */
+  .seg{ display:flex; border:1px solid var(--border); border-radius:3px; overflow:hidden; }
+  .seg button{
+    flex:1; border:none; border-radius:0; background:var(--panel-2); color:var(--text-dim);
+  }
+  .seg button + button{ border-left:1px solid var(--border); }
+  .seg button[aria-pressed="true"]{ background:var(--accent); color:#241a04; }
+
+  /* manual panel */
+  .manual-panel{
+    display:none; flex-direction:column; gap:12px;
+    border:1px solid var(--border); border-radius:3px; background:var(--panel);
+    padding:14px;
+  }
+  .manual-head{ display:flex; gap:18px; align-items:flex-end; flex-wrap:wrap; }
+  .manual-head .field{ margin-bottom:0; min-width:140px; }
+  .preview-wrap canvas{ min-height:160px; cursor:grab; touch-action:none; }
+  .preview-wrap canvas:active{ cursor:grabbing; }
+  .manual-controls{ display:flex; gap:14px; align-items:flex-end; flex-wrap:wrap; }
+  .field-num{ display:flex; flex-direction:column; gap:5px; }
+  .field-num label{ font-size:12.5px; color:var(--text-dim); }
+  .field-num input[type=number]{
+    width:92px; font-family:var(--font-mono); font-size:13px;
+    background:var(--panel-2); color:var(--text);
+    border:1px solid var(--border); border-radius:3px; padding:7px 8px;
+  }
+  .log{
+    margin:0; font-family:var(--font-mono); font-size:11.5px; color:var(--text-dim);
+    line-height:1.6; white-space:pre-wrap; max-height:150px; overflow-y:auto;
+  }
+  .log:empty{ display:none; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Burst stack</h1>
+    <p>Shift, rotation and scale aligned frame accumulation, running live in the browser. Every incoming frame is matched against a running reference, warped into a shared sub-pixel grid, and blended in with a weight based on how well it agrees — indefinitely, not just over a fixed burst.</p>
+  </header>
+
+  <div class="layout">
+    <div class="stage">
+      <div class="error-banner" id="errorBanner"></div>
+
+      <div class="canvas-wrap" id="canvasWrap">
+        <canvas id="glcanvas"></canvas>
+        <canvas id="overlay"></canvas>
+        <div class="empty-state" id="emptyState">Start a camera or load a video to begin stacking.</div>
+      </div>
+
+      <div class="manual-panel" id="manualPanel">
+        <div class="manual-head">
+          <div class="field">
+            <label for="previewMode">Compare</label>
+            <select id="previewMode">
+              <option value="difference">Difference</option>
+              <option value="blend">50% blend</option>
+              <option value="flicker">Flicker</option>
+            </select>
+          </div>
+          <div class="field" id="gainField">
+            <label for="diffGain">Difference gain<span class="val" id="diffGainVal">4×</span></label>
+            <input type="range" id="diffGain" min="1" max="12" step="1" value="4">
+          </div>
+        </div>
+
+        <div class="canvas-wrap preview-wrap">
+          <canvas id="previewCanvas"></canvas>
+          <canvas id="residCanvas"></canvas>
+          <div class="empty-state" id="previewEmpty">Start a camera or load a video first.</div>
+        </div>
+
+        <div class="manual-controls">
+          <div class="field-num">
+            <label for="mx">x offset (px)</label>
+            <input type="number" id="mx" step="0.1" value="0">
+          </div>
+          <div class="field-num">
+            <label for="my">y offset (px)</label>
+            <input type="number" id="my" step="0.1" value="0">
+          </div>
+          <div class="field-num">
+            <label for="mth">rotation (&deg;)</label>
+            <input type="number" id="mth" step="0.05" value="0">
+          </div>
+          <div class="field-num">
+            <label for="mmg">scale (&times;)</label>
+            <input type="number" id="mmg" step="0.0005" value="1">
+          </div>
+          <div class="field-num">
+            <label for="nudgeStep">Arrow key step</label>
+            <select id="nudgeStep">
+              <option value="0.1">0.1 px</option>
+              <option value="0.5">0.5 px</option>
+              <option value="1" selected>1 px</option>
+              <option value="5">5 px</option>
+            </select>
+          </div>
+          <div class="field-num">
+            <label for="rotStep">Rotation key step</label>
+            <select id="rotStep">
+              <option value="0.01">0.01&deg;</option>
+              <option value="0.05">0.05&deg;</option>
+              <option value="0.1" selected>0.1&deg;</option>
+              <option value="0.5">0.5&deg;</option>
+            </select>
+          </div>
+          <div class="field-num">
+            <label for="mgStep">Scale key step</label>
+            <select id="mgStep">
+              <option value="0.0002">0.02%</option>
+              <option value="0.0005">0.05%</option>
+              <option value="0.001" selected>0.1%</option>
+              <option value="0.005">0.5%</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field" style="margin-bottom:0">
+          <label for="mthSlider">Rotation<span class="val" id="mthSliderVal">0.00&deg;</span></label>
+          <input type="range" id="mthSlider" min="-10" max="10" step="0.01" value="0">
+        </div>
+
+        <div class="field" style="margin-bottom:0">
+          <label for="mmgSlider">Scale<span class="val" id="mmgSliderVal">&times;1.0000</span></label>
+          <input type="range" id="mmgSlider" min="0.9" max="1.1" step="0.0002" value="1">
+        </div>
+
+        <div class="btn-row">
+          <button class="primary" id="btnCapture">Capture frame</button>
+          <button id="btnCommit" disabled>Commit to stack</button>
+          <button class="ghost" id="btnDiscard" disabled>Discard</button>
+          <button class="ghost" id="btnApplyAuto" disabled>Use auto pose</button>
+          <button class="ghost" id="btnZero" disabled>Reset pose</button>
+          <button class="ghost" id="btnResidual" disabled>Measure residual</button>
+          <button class="ghost" id="btnPause">Pause source</button>
+        </div>
+
+        <div class="check-row">
+          <input type="checkbox" id="uniformWeights" checked>
+          <label for="uniformWeights">Uniform weights when committing (no motion rejection)</label>
+        </div>
+
+        <div class="stats">
+          <div class="stat-row"><span class="k">error with no shift</span><span class="v" id="mErrZero">—</span></div>
+          <div class="stat-row"><span class="k">error at your pose</span><span class="v" id="mErrManual">—</span></div>
+          <div class="stat-row"><span class="k">error at auto pose</span><span class="v" id="mErrAuto">—</span></div>
+          <div class="stat-row"><span class="k">auto pose</span><span class="v" id="mAutoOff">—</span></div>
+          <div class="stat-row"><span class="k">lower error</span><span class="v" id="mVerdict">—</span></div>
+          <div class="stat-row"><span class="k">tile residual (varies)</span><span class="v" id="mResid">—</span></div>
+          <div class="stat-row"><span class="k">uniform part</span><span class="v" id="mResidMean">—</span></div>
+          <div class="stat-row"><span class="k">tiles needed?</span><span class="v" id="mResidVerdict">—</span></div>
+        </div>
+
+        <p class="note">The pose carries the captured frame onto the reference. The x and y offset is the displacement at the image center, in input-video pixels (x right, y down). Rotation and scale pivot on that center: positive rotation turns the captured frame counter-clockwise on screen, and a scale above 1 enlarges the captured frame. Error is the mean absolute gray difference over the overlap, measured at 320 px wide with bilinear sampling, using the same metric for every row. Drag the preview to shift, use the arrow keys to shift, [ ] to rotate and , . to scale (Shift for ×10), or type values. Space captures, Enter commits, Esc discards, A applies the auto pose. The first capture becomes the reference.</p>
+        <p class="note"><b>Measure residual</b> (key R) applies your current pose, then measures how far each ~128 px tile of the captured frame still sits from the reference, in input-video pixels. Arrows are drawn 30× longer than the real shift and point where the tile's content landed relative to the reference; green is under 0.15 px, amber under 0.30, red above, and gray dots are tiles without enough texture. "Varies" is the part that differs from tile to tile, which is what per-tile alignment could fix; "uniform part" is a single shared offset that a better global pose would remove. Apply the auto pose first to see what the global fit leaves behind. Moving the pose clears the measurement.</p>
+        <pre class="log" id="manualLog"></pre>
+      </div>
+
+      <div class="pip-row">
+        <div class="pip">
+          <video id="video" muted playsinline></video>
+          <div class="pip-label">raw input</div>
+        </div>
+      </div>
+
+      <div class="status-line">
+        <span class="pill"><span class="dot" id="trackDot"></span><span id="trackLabel">idle</span></span>
+        <span class="pill">pose <span id="offsetVal" style="color:var(--text)">0.0, 0.0 px, 0.00&deg;</span></span>
+        <span class="pill">frames <span id="frameVal" style="color:var(--text)">0</span></span>
+        <span class="pill" id="fpsPill"><span id="fpsVal" style="color:var(--text)">0</span> fps</span>
+      </div>
+    </div>
+
+    <aside>
+      <div>
+        <p class="section-title">source</p>
+        <div class="btn-row">
+          <button class="primary" id="btnCamera">Start camera</button>
+          <button class="ghost" id="btnFile">Load video file</button>
+          <input type="file" id="fileInput" accept="video/*">
+        </div>
+      </div>
+
+      <div>
+        <p class="section-title">alignment</p>
+        <div class="seg" role="group" aria-label="Alignment mode">
+          <button id="modeAuto" aria-pressed="true">Auto</button>
+          <button id="modeManual" aria-pressed="false">Manual</button>
+        </div>
+        <p class="note" style="margin-top:8px">Switching modes clears the stack.</p>
+      </div>
+
+      <div>
+        <p class="section-title">stack</p>
+        <div class="btn-row">
+          <button id="btnReset" disabled>Reset stack</button>
+        </div>
+      </div>
+
+      <div>
+        <p class="section-title">view</p>
+        <div class="field">
+          <label for="viewMode">Display mode</label>
+          <select id="viewMode">
+            <option value="0">Stacked result</option>
+            <option value="1">Confidence heatmap</option>
+          </select>
+        </div>
+        <div class="check-row">
+          <input type="checkbox" id="showReticle" checked>
+          <label for="showReticle">Show alignment vector</label>
+        </div>
+        <div class="field" style="margin-top:16px">
+          <label for="sharpAmt">Sharpen<span class="val" id="sharpAmtVal">0.00</span></label>
+          <input type="range" id="sharpAmt" min="0" max="3" step="0.05" value="0">
+        </div>
+        <div class="field">
+          <label for="sharpRadius">Sharpen radius<span class="val" id="sharpRadiusVal">0.50 px</span></label>
+          <input type="range" id="sharpRadius" min="0.2" max="2" step="0.05" value="0.5">
+        </div>
+        <p class="note">Unsharp mask applied to the display only; the stack itself is unchanged. The radius is in input pixels, so it means the same thing at 1× and 2×. Start at 0.5 and raise the amount until halos appear around edges.</p>
+      </div>
+
+      <div>
+        <p class="section-title">reconstruction</p>
+        <div class="check-row">
+          <input type="checkbox" id="tileFlow" checked>
+          <label for="tileFlow">Tile correction (local flow)</label>
+        </div>
+        <p class="note">After the global pose, each ~128 px region of the frame gets its own sub-pixel shift (smoothly interpolated), so lens distortion, rolling shutter and small depth changes stop blurring the stack. Turning it on or off restarts the reference, not the stack.</p>
+        <div class="field">
+          <label for="resampleSel">Resampling</label>
+          <select id="resampleSel">
+            <option value="1" selected>Bicubic (Catmull-Rom)</option>
+            <option value="0">Bilinear</option>
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <p class="section-title">parameters</p>
+        <div class="field">
+          <label for="srFactor">Output resolution<span class="val" id="srFactorVal">1×</span></label>
+          <select id="srFactor">
+            <option value="1">1× (denoise only)</option>
+            <option value="2">2× (super-resolve)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="memory">Accumulation memory<span class="val" id="memoryVal">infinite</span></label>
+          <select id="memory">
+            <option value="1.0">Infinite</option>
+            <option value="0.99667">~300 frames</option>
+            <option value="0.9833">~60 frames</option>
+            <option value="0.9333">~15 frames</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="searchRadius">Search radius<span class="val" id="searchRadiusVal">12%</span></label>
+          <input type="range" id="searchRadius" min="3" max="20" step="1" value="12">
+        </div>
+        <div class="field">
+          <label for="sigma">Motion rejection<span class="val" id="sigmaVal">0.12</span></label>
+          <input type="range" id="sigma" min="0.05" max="0.35" step="0.01" value="0.12">
+        </div>
+      </div>
+
+      <div class="stats">
+        <div class="stat-row"><span class="k">tracking</span><span class="v" id="statTracking">—</span></div>
+        <div class="stat-row"><span class="k">match error</span><span class="v" id="statError">—</span></div>
+        <div class="stat-row"><span class="k">local flow</span><span class="v" id="statFlow">—</span></div>
+        <div class="stat-row"><span class="k">accumulator</span><span class="v" id="statAccumFmt">—</span></div>
+        <div class="stat-row"><span class="k">resolution</span><span class="v" id="statRes">—</span></div>
+      </div>
+
+      <p class="note">Alignment is a similarity transform: a shift, a rotation and a uniform scale about the image center, fitted to the whole frame. Each new frame is matched against the running average, first with a coarse integer-shift search, then with a three-level Gauss-Newton refinement of shift, rotation and scale at 320 px wide, and warped onto the output grid with GPU bilinear sampling. Perspective and parallax are not modeled. Per-pixel blend weight falls off with local color disagreement, so moving content is down-weighted rather than ghosted. If the match error spikes, the stack auto-resets rather than silently degrading.</p>
+    </aside>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------- DOM ----------
+  const video = document.getElementById('video');
+  const glcanvas = document.getElementById('glcanvas');
+  const overlay = document.getElementById('overlay');
+  const overlayCtx = overlay.getContext('2d');
+  const canvasWrap = document.getElementById('canvasWrap');
+  const emptyState = document.getElementById('emptyState');
+  const errorBanner = document.getElementById('errorBanner');
+
+  const btnCamera = document.getElementById('btnCamera');
+  const btnFile = document.getElementById('btnFile');
+  const fileInput = document.getElementById('fileInput');
+  const btnReset = document.getElementById('btnReset');
+
+  const viewModeSel = document.getElementById('viewMode');
+  const showReticleChk = document.getElementById('showReticle');
+  const srFactorSel = document.getElementById('srFactor');
+  const srFactorVal = document.getElementById('srFactorVal');
+  const memorySel = document.getElementById('memory');
+  const memoryVal = document.getElementById('memoryVal');
+  const searchRadiusInput = document.getElementById('searchRadius');
+  const searchRadiusVal = document.getElementById('searchRadiusVal');
+  const sigmaInput = document.getElementById('sigma');
+  const sigmaVal = document.getElementById('sigmaVal');
+
+  const modeAutoBtn = document.getElementById('modeAuto');
+  const modeManualBtn = document.getElementById('modeManual');
+  const fpsPill = document.getElementById('fpsPill');
+  const manualPanel = document.getElementById('manualPanel');
+  const previewCanvas = document.getElementById('previewCanvas');
+  const previewCtx = previewCanvas.getContext('2d');
+  const previewEmpty = document.getElementById('previewEmpty');
+  const previewModeSel = document.getElementById('previewMode');
+  const gainField = document.getElementById('gainField');
+  const diffGainInput = document.getElementById('diffGain');
+  const diffGainVal = document.getElementById('diffGainVal');
+  const mxInput = document.getElementById('mx');
+  const myInput = document.getElementById('my');
+  const nudgeStepSel = document.getElementById('nudgeStep');
+  const btnCapture = document.getElementById('btnCapture');
+  const btnCommit = document.getElementById('btnCommit');
+  const btnDiscard = document.getElementById('btnDiscard');
+  const btnApplyAuto = document.getElementById('btnApplyAuto');
+  const btnZero = document.getElementById('btnZero');
+  const btnPause = document.getElementById('btnPause');
+  const uniformChk = document.getElementById('uniformWeights');
+  const mErrZero = document.getElementById('mErrZero');
+  const mErrManual = document.getElementById('mErrManual');
+  const mErrAuto = document.getElementById('mErrAuto');
+  const mAutoOff = document.getElementById('mAutoOff');
+  const mVerdict = document.getElementById('mVerdict');
+  const manualLogEl = document.getElementById('manualLog');
+  const mthInput = document.getElementById('mth');
+  const mthSlider = document.getElementById('mthSlider');
+  const mthSliderVal = document.getElementById('mthSliderVal');
+  const rotStepSel = document.getElementById('rotStep');
+  const mmgInput = document.getElementById('mmg');
+  const mmgSlider = document.getElementById('mmgSlider');
+  const mmgSliderVal = document.getElementById('mmgSliderVal');
+  const mgStepSel = document.getElementById('mgStep');
+  const sharpAmtInput = document.getElementById('sharpAmt');
+  const sharpAmtVal = document.getElementById('sharpAmtVal');
+  const sharpRadiusInput = document.getElementById('sharpRadius');
+  const sharpRadiusVal = document.getElementById('sharpRadiusVal');
+  const tileFlowChk = document.getElementById('tileFlow');
+  const resampleSel = document.getElementById('resampleSel');
+  const statFlow = document.getElementById('statFlow');
+  const residCanvas = document.getElementById('residCanvas');
+  const residCtx = residCanvas.getContext('2d');
+  const btnResidual = document.getElementById('btnResidual');
+  const mResid = document.getElementById('mResid');
+  const mResidMean = document.getElementById('mResidMean');
+  const mResidVerdict = document.getElementById('mResidVerdict');
+
+  const trackDot = document.getElementById('trackDot');
+  const trackLabel = document.getElementById('trackLabel');
+  const offsetValEl = document.getElementById('offsetVal');
+  const frameValEl = document.getElementById('frameVal');
+  const fpsValEl = document.getElementById('fpsVal');
+  const statTracking = document.getElementById('statTracking');
+  const statError = document.getElementById('statError');
+  const statAccumFmt = document.getElementById('statAccumFmt');
+  const statRes = document.getElementById('statRes');
+
+  function showError(msg){
+    errorBanner.textContent = msg;
+    errorBanner.style.display = 'block';
+  }
+
+  // ---------- WebGL2 setup ----------
+  const gl = glcanvas.getContext('webgl2', { antialias:false, preserveDrawingBuffer:false, alpha:false });
+  if(!gl){
+    showError('WebGL2 is not available in this browser, so the accumulation pipeline cannot run.');
+    return;
+  }
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+
+  const floatExt = gl.getExtension('EXT_color_buffer_float');
+  const ACCUM_FORMAT = floatExt
+    ? { internalFormat: gl.RGBA16F, format: gl.RGBA, type: gl.HALF_FLOAT, label:'RGBA16F' }
+    : { internalFormat: gl.RGBA8,   format: gl.RGBA, type: gl.UNSIGNED_BYTE, label:'RGBA8 (fallback, banding possible)' };
+
+  function compileShader(src, type){
+    const sh = gl.createShader(type);
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    if(!gl.getShaderParameter(sh, gl.COMPILE_STATUS)){
+      const log = gl.getShaderInfoLog(sh);
+      gl.deleteShader(sh);
+      throw new Error('Shader compile error: ' + log);
+    }
+    return sh;
+  }
+  function linkProgram(vsSrc, fsSrc){
+    const vs = compileShader(vsSrc, gl.VERTEX_SHADER);
+    const fs = compileShader(fsSrc, gl.FRAGMENT_SHADER);
+    const prog = gl.createProgram();
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+    if(!gl.getProgramParameter(prog, gl.LINK_STATUS)){
+      const log = gl.getProgramInfoLog(prog);
+      throw new Error('Program link error: ' + log);
+    }
+    return prog;
+  }
+
+  const VERT_SRC = `#version 300 es
+    in vec2 aPos;
+    out vec2 vUV;
+    void main(){
+      vUV = aPos * 0.5 + 0.5;
+      gl_Position = vec4(aPos, 0.0, 1.0);
+    }
+  `;
+
+  const ACCUM_FRAG_SRC = `#version 300 es
+    precision highp float;
+    uniform sampler2D uVideo;
+    uniform sampler2D uPrevAccum;
+    uniform vec2 uVideoSize;   // video size in px
+    uniform vec2 uDispPx;      // displacement d at the center, video px, image space (y down)
+    uniform vec2 uRot;         // cos(theta), sin(theta)
+    uniform float uMag;        // magnification applied to the captured frame (>1 enlarges it)
+    uniform float uDecay;
+    uniform float uSigma;
+    uniform float uMinWeight;
+    uniform sampler2D uFlow;   // per-tile residual shift, video px, image space (rows top to bottom)
+    uniform int uFlowOn;
+    uniform int uCubic;
+    in vec2 vUV;
+    out vec4 fragColor;
+
+    // Catmull-Rom through 9 bilinear taps (weights from the standard 4x4 kernel).
+    vec3 sampleCatmullRom(sampler2D tex, vec2 uv, vec2 texSize){
+      vec2 pos = uv * texSize;
+      vec2 t1 = floor(pos - 0.5) + 0.5;
+      vec2 f = pos - t1;
+      vec2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f));
+      vec2 w1 = 1.0 + f * f * (-2.5 + 1.5 * f);
+      vec2 w2 = f * (0.5 + f * (2.0 - 1.5 * f));
+      vec2 w3 = f * f * (-0.5 + 0.5 * f);
+      vec2 w12 = w1 + w2;
+      vec2 t0 = (t1 - 1.0) / texSize;
+      vec2 t3 = (t1 + 2.0) / texSize;
+      vec2 t12 = (t1 + w2 / w12) / texSize;
+      vec3 c = vec3(0.0);
+      c += texture(tex, vec2(t0.x,  t0.y )).rgb * (w0.x  * w0.y );
+      c += texture(tex, vec2(t12.x, t0.y )).rgb * (w12.x * w0.y );
+      c += texture(tex, vec2(t3.x,  t0.y )).rgb * (w3.x  * w0.y );
+      c += texture(tex, vec2(t0.x,  t12.y)).rgb * (w0.x  * w12.y);
+      c += texture(tex, vec2(t12.x, t12.y)).rgb * (w12.x * w12.y);
+      c += texture(tex, vec2(t3.x,  t12.y)).rgb * (w3.x  * w12.y);
+      c += texture(tex, vec2(t0.x,  t3.y )).rgb * (w0.x  * w3.y );
+      c += texture(tex, vec2(t12.x, t3.y )).rgb * (w12.x * w3.y );
+      c += texture(tex, vec2(t3.x,  t3.y )).rgb * (w3.x  * w3.y );
+      return clamp(c, 0.0, 1.0);
+    }
+
+    void main(){
+      vec4 prev = texture(uPrevAccum, vUV);
+      // Output pixel p (video px, y down) -> sample position q = R(theta)(p - c) / m + c - d
+      vec2 p = vec2(vUV.x * uVideoSize.x, (1.0 - vUV.y) * uVideoSize.y);
+      vec2 c = 0.5 * uVideoSize;
+      // local correction: aligned(p) = globallyWarped(p + s(p)); s is bilinear between tile centers
+      if(uFlowOn == 1) p += texture(uFlow, vec2(vUV.x, 1.0 - vUV.y)).rg;
+      vec2 r = p - c;
+      vec2 q = vec2(uRot.x * r.x - uRot.y * r.y, uRot.y * r.x + uRot.x * r.y) / uMag + c - uDispPx;
+      vec2 videoUV = vec2(q.x / uVideoSize.x, 1.0 - q.y / uVideoSize.y);
+      if(videoUV.x < 0.0 || videoUV.x > 1.0 || videoUV.y < 0.0 || videoUV.y > 1.0){
+        fragColor = prev;
+        return;
+      }
+      vec3 samp = uCubic == 1 ? sampleCatmullRom(uVideo, videoUV, uVideoSize) : texture(uVideo, videoUV).rgb;
+      vec3 refColor = prev.a > 0.0005 ? prev.rgb / prev.a : samp;
+      float diff = length(samp - refColor);
+      float w = max(uMinWeight, exp(-(diff*diff) / (2.0 * uSigma * uSigma)));
+      vec3 newSum = prev.rgb * uDecay + samp * w;
+      float newWeight = prev.a * uDecay + w;
+      fragColor = vec4(newSum, newWeight);
+    }
+  `;
+
+  const DISPLAY_FRAG_SRC = `#version 300 es
+    precision highp float;
+    uniform sampler2D uAccum;
+    uniform sampler2D uBlur;     // blurred copy of the stacked color (rgb premultiplied by weight in a)
+    uniform float uSharpAmt;
+    uniform int uViewMode;
+    uniform float uConfNorm;
+    in vec2 vUV;
+    out vec4 fragColor;
+    void main(){
+      vec4 acc = texture(uAccum, vUV);
+      if(acc.a < 0.0005){
+        fragColor = vec4(0.02, 0.03, 0.025, 1.0);
+        return;
+      }
+      vec3 color = acc.rgb / acc.a;
+      if(uSharpAmt > 0.0){
+        vec4 b = texture(uBlur, vUV);
+        if(b.a > 0.0005) color = clamp(color + uSharpAmt * (color - b.rgb / b.a), 0.0, 1.0);
+      }
+      if(uViewMode == 0){
+        fragColor = vec4(color, 1.0);
+      } else {
+        float t = clamp(log(acc.a + 1.0) / log(uConfNorm + 1.0), 0.0, 1.0);
+        vec3 lo = vec3(0.04, 0.05, 0.06);
+        vec3 hi = vec3(1.0, 0.69, 0.13);
+        vec3 heat = mix(lo, hi, t);
+        fragColor = vec4(mix(color * 0.25, heat, 0.88), 1.0);
+      }
+    }
+  `;
+
+  // One direction of a separable Gaussian blur, used for the display-only sharpen.
+  // Pass 1 reads the accumulator (normalizes it and ignores unfilled pixels); pass 2
+  // reads pass 1's output. The blurred color is rgb / a at display time.
+  const BLUR_FRAG_SRC = `#version 300 es
+    precision highp float;
+    uniform sampler2D uSrc;
+    uniform vec2 uStep;        // one texel along the blur direction
+    uniform float uSigma;      // output pixels
+    uniform int uRadius;
+    uniform int uFromAccum;    // 1: read the accumulator, 0: read a previous blur pass
+    in vec2 vUV;
+    out vec4 fragColor;
+    void main(){
+      vec3 sum = vec3(0.0);
+      float wsum = 0.0;
+      float k = -0.5 / (uSigma * uSigma);
+      for(int i = -12; i <= 12; i++){
+        if(i < -uRadius || i > uRadius) continue;
+        float w = exp(k * float(i * i));
+        vec4 t = texture(uSrc, vUV + uStep * float(i));
+        if(uFromAccum == 1){
+          if(t.a > 0.0005){ sum += w * (t.rgb / t.a); wsum += w; }
+        } else {
+          sum += w * t.rgb; wsum += w * t.a;
+        }
+      }
+      fragColor = vec4(sum, wsum);
+    }
+  `;
+
+  const accumProgram = linkProgram(VERT_SRC, ACCUM_FRAG_SRC);
+  const displayProgram = linkProgram(VERT_SRC, DISPLAY_FRAG_SRC);
+  const blurProgram = linkProgram(VERT_SRC, BLUR_FRAG_SRC);
+
+  const quadVAO = gl.createVertexArray();
+  gl.bindVertexArray(quadVAO);
+  const quadBuf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  gl.bindVertexArray(null);
+
+  function drawQuad(){
+    gl.bindVertexArray(quadVAO);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.bindVertexArray(null);
+  }
+
+  const accumUniforms = {
+    uVideo: gl.getUniformLocation(accumProgram, 'uVideo'),
+    uPrevAccum: gl.getUniformLocation(accumProgram, 'uPrevAccum'),
+    uVideoSize: gl.getUniformLocation(accumProgram, 'uVideoSize'),
+    uDispPx: gl.getUniformLocation(accumProgram, 'uDispPx'),
+    uRot: gl.getUniformLocation(accumProgram, 'uRot'),
+    uMag: gl.getUniformLocation(accumProgram, 'uMag'),
+    uDecay: gl.getUniformLocation(accumProgram, 'uDecay'),
+    uSigma: gl.getUniformLocation(accumProgram, 'uSigma'),
+    uMinWeight: gl.getUniformLocation(accumProgram, 'uMinWeight'),
+    uFlow: gl.getUniformLocation(accumProgram, 'uFlow'),
+    uFlowOn: gl.getUniformLocation(accumProgram, 'uFlowOn'),
+    uCubic: gl.getUniformLocation(accumProgram, 'uCubic'),
+  };
+
+  // Per-tile flow field: a tiny RG16F texture, bilinearly interpolated by the GPU.
+  const flowTex = gl.createTexture();
+  gl.activeTexture(gl.TEXTURE2);
+  gl.bindTexture(gl.TEXTURE_2D, flowTex);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG16F, 1, 1, 0, gl.RG, gl.FLOAT, new Float32Array(2));
+  gl.activeTexture(gl.TEXTURE0);
+  const displayUniforms = {
+    uAccum: gl.getUniformLocation(displayProgram, 'uAccum'),
+    uViewMode: gl.getUniformLocation(displayProgram, 'uViewMode'),
+    uConfNorm: gl.getUniformLocation(displayProgram, 'uConfNorm'),
+    uBlur: gl.getUniformLocation(displayProgram, 'uBlur'),
+    uSharpAmt: gl.getUniformLocation(displayProgram, 'uSharpAmt'),
+  };
+  const blurUniforms = {
+    uSrc: gl.getUniformLocation(blurProgram, 'uSrc'),
+    uStep: gl.getUniformLocation(blurProgram, 'uStep'),
+    uSigma: gl.getUniformLocation(blurProgram, 'uSigma'),
+    uRadius: gl.getUniformLocation(blurProgram, 'uRadius'),
+    uFromAccum: gl.getUniformLocation(blurProgram, 'uFromAccum'),
+  };
+
+  // video texture
+  const videoTex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, videoTex);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+  function createAccumTarget(w, h){
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, ACCUM_FORMAT.internalFormat, w, h, 0, ACCUM_FORMAT.format, ACCUM_FORMAT.type, null);
+    const fbo = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    if(status !== gl.FRAMEBUFFER_COMPLETE){
+      throw new Error('Framebuffer incomplete (status ' + status + ')');
+    }
+    return { tex, fbo };
+  }
+
+  function clearTarget(target){
+    gl.bindFramebuffer(gl.FRAMEBUFFER, target.fbo);
+    gl.clearColor(0,0,0,0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  }
+
+  // ---------- state ----------
+  let accumW = 0, accumH = 0, videoW = 0, videoH = 0;
+  let targets = null; // [A, B]
+  let pingIndex = 0;
+  let running = false;
+  let frameCounter = 0;
+  let currentWarp = { dx: 0, dy: 0, th: 0, mg: 1 };   // video px, video px, radians, magnification
+  let currentOffsetPx = [0,0];                  // work px, for the reticle
+  let trackStatus = 'idle';
+  let lastMatchError = 0;
+
+  let srFactor = parseInt(srFactorSel.value, 10);
+  let decay = parseFloat(memorySel.value);
+  let searchRadius = parseInt(searchRadiusInput.value, 10);
+  let sigma = parseFloat(sigmaInput.value);
+  let viewMode = parseInt(viewModeSel.value, 10);
+  let sharpAmt = parseFloat(sharpAmtInput.value);        // display-only unsharp amount
+  let sharpRadius = parseFloat(sharpRadiusInput.value);  // unsharp sigma, in input pixels
+  let sharpTargets = null;                               // created lazily, only when sharpening
+
+  let mode = 'auto';          // 'auto' | 'manual'
+  let manualDirty = true;     // readouts need a refresh
+  let manualLooping = false;
+  let tickPending = false;    // guards against duplicate auto-loop chains
+  const manual = {
+    refCanvas: null,   // full-res snapshot of the reference frame
+    heldCanvas: null,  // full-res snapshot of the frame being aligned
+    refScore: null,    // gray at work resolution
+    heldScore: null,
+    x: 0, y: 0,        // displacement at the center, video px, image space (+x right, +y down)
+    th: 0,             // rotation about the center, degrees, positive = counter-clockwise on screen
+    mg: 1,             // magnification applied to the captured frame (>1 enlarges it)
+    auto: null,        // auto estimator's suggestion {x, y, th, mg}
+    resid: null,       // last residual measurement for the current pose, or null
+    log: []
+  };
+
+  const offsetTrail = [];
+  const MAX_TRAIL = 40;
+
+  // fps
+  let lastTs = 0, fpsSmoothed = 0;
+
+  function setStatus(status, errVal){
+    trackStatus = status;
+    lastMatchError = errVal;
+    trackLabel.textContent = status;
+    statTracking.textContent = status;
+    statError.textContent = errVal.toFixed(2);
+    trackDot.className = 'dot ' + (status === 'locked' ? 'ok' : status === 'weak' ? 'warn' : status === 'lost' ? 'bad' : '');
+  }
+
+  function initBuffers(){
+    videoW = video.videoWidth;
+    videoH = video.videoHeight;
+    if(!videoW || !videoH) return false;
+
+    accumW = videoW * srFactor;
+    accumH = videoH * srFactor;
+
+    glcanvas.width = accumW;
+    glcanvas.height = accumH;
+    overlay.width = accumW;
+    overlay.height = accumH;
+    canvasWrap.style.aspectRatio = (videoW / videoH).toFixed(4);
+
+    freeSharpTargets();
+    if(targets){
+      gl.deleteTexture(targets[0].tex); gl.deleteFramebuffer(targets[0].fbo);
+      gl.deleteTexture(targets[1].tex); gl.deleteFramebuffer(targets[1].fbo);
+    }
+    targets = [createAccumTarget(accumW, accumH), createAccumTarget(accumW, accumH)];
+    clearTarget(targets[0]);
+    clearTarget(targets[1]);
+    pingIndex = 0;
+
+    initWork();
+    refWork = null;
+    prevEst = null;
+    refFineS = null; prevFlow = null; currentFlow = null; flowStat = null;
+
+    frameCounter = 0;
+    offsetTrail.length = 0;
+    currentWarp = { dx: 0, dy: 0, th: 0, mg: 1 };
+    currentOffsetPx = [0,0];
+    setStatus('idle', 0);
+    manualReset();
+
+    statAccumFmt.textContent = ACCUM_FORMAT.label;
+    statRes.textContent = accumW + '\u00d7' + accumH + ' (input ' + videoW + '\u00d7' + videoH + ')';
+    emptyState.style.display = 'none';
+    btnReset.disabled = false;
+    return true;
+  }
+
+  function resetStack(){
+    if(!targets) return;
+    clearTarget(targets[0]);
+    clearTarget(targets[1]);
+    pingIndex = 0;
+    frameCounter = 0;
+    refWork = null;
+    prevEst = null;
+    refFineS = null; prevFlow = null; currentFlow = null; flowStat = null;
+    offsetTrail.length = 0;
+    setStatus('idle', 0);
+    manualReset();
+  }
+
+  // ---------- grayscale + alignment ----------
+  // Model:  ref(p) ~= cur(q),   q = R(theta) (p - c) / m + c - d
+  //   p, q   pixel coordinates (image space, y down)
+  //   c      video center, the rotation pivot
+  //   d      displacement at the center
+  //   theta  rotation about the center, radians
+  //   m      magnification of cur needed to land on ref (1 = none, >1 enlarges cur)
+  // At theta = 0 and m = 1 this is the plain shift ref(p) ~= cur(p - d).
+  // Estimation runs at WORK_W px wide: a coarse integer shift search seeds a
+  // Gauss-Newton (Lucas-Kanade) refinement of (dx, dy, theta, m) up a 3-level pyramid.
+
+  const WORK_W = 320;
+  const work = { w: 0, h: 0, f: 1, canvas: null, ctx: null, cx: 0, cy: 0 };
+  let refWork = null;   // EMA reference at work resolution (auto mode)
+  // fine-resolution state for the tile flow
+  const FINE_W = 640;
+  const fine = { w: 0, h: 0, k: 1, canvas: null, ctx: null };   // k = fine px per video px
+  let refFineS = null;     // smoothed EMA reference at fine resolution
+  let prevFlow = null;     // last node field, warm-starts the next frame
+  let currentFlow = null;  // {cols, rows, data} in video px, for the shader (null = off)
+  let flowStat = null;     // {rms, max, good, total} in video px
+  let prevEst = null;   // last solution {dx, dy, th, mg} in work px / rad / ratio, warm-starts the next frame
+
+  // Every frame, in either mode, is drawn into this 2D canvas first. The GL upload and
+  // the estimator both read the canvas, never the <video> element, so they cannot
+  // disagree about orientation, size or color handling (uploading a <video> straight
+  // to WebGL can differ from drawImage(video) in some browsers, e.g. for clips that
+  // carry rotation metadata).
+  let frameCanvas = null, frameCtx = null;
+
+  function grabFrame(){
+    frameCtx.drawImage(video, 0, 0, videoW, videoH);
+    return frameCanvas;
+  }
+
+  function initWork(){
+    frameCanvas = document.createElement('canvas');
+    frameCanvas.width = videoW;
+    frameCanvas.height = videoH;
+    frameCtx = frameCanvas.getContext('2d');
+    work.f = videoW / WORK_W;                                   // video px per work px (isotropic)
+    work.w = WORK_W;
+    work.h = Math.max(16, Math.floor(videoH / work.f / 4) * 4); // multiple of 4 for the pyramid
+    work.canvas = document.createElement('canvas');
+    work.canvas.width = work.w;
+    work.canvas.height = work.h;
+    work.ctx = work.canvas.getContext('2d', { willReadFrequently: true });
+    // video center in work pixel-index coordinates (index i covers video [i*f, (i+1)*f])
+    work.cx = videoW / 2 / work.f - 0.5;
+    work.cy = videoH / 2 / work.f - 0.5;
+    fine.w = Math.min(videoW, FINE_W);
+    fine.h = Math.round(videoH * fine.w / videoW);
+    fine.k = fine.w / videoW;
+    fine.canvas = document.createElement('canvas');
+    fine.canvas.width = fine.w;
+    fine.canvas.height = fine.h;
+    fine.ctx = fine.canvas.getContext('2d', { willReadFrequently: true });
+    refFineS = null; prevFlow = null; currentFlow = null; flowStat = null;
+  }
+
+  // Gray image at work resolution from a video element or a full-size canvas.
+  function grayFromSource(src){
+    work.ctx.drawImage(src, 0, 0, work.w * work.f, work.h * work.f, 0, 0, work.w, work.h);
+    const data = work.ctx.getImageData(0, 0, work.w, work.h).data;
+    const out = new Float32Array(work.w * work.h);
+    for(let i = 0, p = 0; i < out.length; i++, p += 4){
+      out[i] = data[p] * 0.299 + data[p+1] * 0.587 + data[p+2] * 0.114;
+    }
+    return out;
+  }
+
+  function sadAt(cur, ref, w, h, dx, dy, margin, stride){
+    let sum = 0, n = 0;
+    for(let y = margin; y < h - margin; y += stride){
+      const rowCur = y * w;
+      const rowRef = (y + dy) * w;
+      for(let x = margin; x < w - margin; x += stride){
+        const diff = cur[rowCur + x] - ref[rowRef + x + dx];
+        sum += diff < 0 ? -diff : diff;
+        n++;
+      }
+    }
+    return n > 0 ? sum / n : 1e9;
+  }
+
+  function findOffset(cur, ref, w, h, W){
+    const margin = W + 1;
+    if(w - 2*margin < 8 || h - 2*margin < 8){
+      return { dx: 0, dy: 0, err: sadAt(cur, ref, w, h, 0, 0, 1, 1) };
+    }
+    let bestDx = 0, bestDy = 0, bestErr = Infinity;
+    const stride = 2;
+    for(let dy = -W; dy <= W; dy++){
+      for(let dx = -W; dx <= W; dx++){
+        const e = sadAt(cur, ref, w, h, dx, dy, margin, stride);
+        if(e < bestErr){ bestErr = e; bestDx = dx; bestDy = dy; }
+      }
+    }
+    // sub-pixel parabolic refine
+    const c0 = sadAt(cur, ref, w, h, bestDx, bestDy, margin, 1);
+    const cxm = sadAt(cur, ref, w, h, bestDx-1, bestDy, margin, 1);
+    const cxp = sadAt(cur, ref, w, h, bestDx+1, bestDy, margin, 1);
+    const cym = sadAt(cur, ref, w, h, bestDx, bestDy-1, margin, 1);
+    const cyp = sadAt(cur, ref, w, h, bestDx, bestDy+1, margin, 1);
+    let subDx = 0, subDy = 0;
+    const denomX = (cxm - 2*c0 + cxp);
+    const denomY = (cym - 2*c0 + cyp);
+    if(Math.abs(denomX) > 1e-4) subDx = clamp(0.5 * (cxm - cxp) / denomX, -1, 1);
+    if(Math.abs(denomY) > 1e-4) subDy = clamp(0.5 * (cym - cyp) / denomY, -1, 1);
+    return { dx: bestDx + subDx, dy: bestDy + subDy, err: c0 };
+  }
+
+  function clamp(v, lo, hi){ return v < lo ? lo : v > hi ? hi : v; }
+
+  function bilinearSample(gray, w, h, x, y){
+    x = clamp(x, 0, w - 1.001);
+    y = clamp(y, 0, h - 1.001);
+    const x0 = Math.floor(x), y0 = Math.floor(y);
+    const x1 = x0 + 1, y1 = y0 + 1;
+    const fx = x - x0, fy = y - y0;
+    const v00 = gray[y0*w+x0], v10 = gray[y0*w+x1], v01 = gray[y1*w+x0], v11 = gray[y1*w+x1];
+    return v00*(1-fx)*(1-fy) + v10*fx*(1-fy) + v01*(1-fx)*fy + v11*fx*fy;
+  }
+
+  // Mean abs gray difference between ref(p) and cur(q(p)) over pixels whose q lands
+  // inside the image. Pose is (dx, dy) in the image's own pixels, th in radians, mg the
+  // magnification, pivot (cx, cy) in the same pixel-index coordinates.
+  function scoreRigid(cur, ref, w, h, dx, dy, th, mg, cx, cy, margin){
+    const co = Math.cos(th) / mg, si = Math.sin(th) / mg;
+    let sum = 0, n = 0;
+    for(let y = margin; y < h - margin; y++){
+      const ry = y - cy;
+      for(let x = margin; x < w - margin; x++){
+        const rx = x - cx;
+        const qx = co*rx - si*ry + cx - dx;
+        const qy = si*rx + co*ry + cy - dy;
+        if(qx < 0 || qx > w - 1.001 || qy < 0 || qy > h - 1.001) continue;
+        const d = bilinearSample(cur, w, h, qx, qy) - ref[y*w + x];
+        sum += d < 0 ? -d : d;
+        n++;
+      }
+    }
+    return n > 64 ? sum / n : NaN;
+  }
+
+  function downsample2(src, w, h){
+    const w2 = w >> 1, h2 = h >> 1;
+    const out = new Float32Array(w2 * h2);
+    for(let y = 0; y < h2; y++){
+      for(let x = 0; x < w2; x++){
+        const i = (2*y) * w + 2*x;
+        out[y*w2 + x] = 0.25 * (src[i] + src[i+1] + src[i+w] + src[i+w+1]);
+      }
+    }
+    return out;
+  }
+
+  function gradientImages(img, w, h){
+    const gx = new Float32Array(w * h), gy = new Float32Array(w * h);
+    for(let y = 0; y < h; y++){
+      const ym = y > 0 ? y - 1 : y, yp = y < h - 1 ? y + 1 : y;
+      for(let x = 0; x < w; x++){
+        const xm = x > 0 ? x - 1 : x, xp = x < w - 1 ? x + 1 : x;
+        gx[y*w + x] = (img[y*w + xp] - img[y*w + xm]) / (xp - xm);
+        gy[y*w + x] = (img[yp*w + x] - img[ym*w + x]) / (yp - ym);
+      }
+    }
+    return { gx, gy };
+  }
+
+  // Levels ordered coarse -> fine. `scale` is work px per level px (4, 2, 1).
+  function buildPyramid(gray, withGrad){
+    const l2 = { w: work.w, h: work.h, scale: 1, img: gray };
+    const i1 = downsample2(gray, l2.w, l2.h);
+    const l1 = { w: l2.w >> 1, h: l2.h >> 1, scale: 2, img: i1 };
+    const i0 = downsample2(i1, l1.w, l1.h);
+    const l0 = { w: l1.w >> 1, h: l1.h >> 1, scale: 4, img: i0 };
+    const levels = [l0, l1, l2];
+    if(withGrad){
+      for(const L of levels){
+        const g = gradientImages(L.img, L.w, L.h);
+        L.gx = g.gx;
+        L.gy = g.gy;
+      }
+    }
+    return levels;
+  }
+
+  // Gauss-Newton on (dx, dy, theta, m) at one pyramid level. p is {dx, dy, th, mg} in
+  // work px / rad / ratio and is updated in place. Residual r = cur(q(p)) - ref(p),
+  // Huber-weighted. The rotation and scale unknowns are multiplied by a lever arm L
+  // (about half the level width) so all four columns have comparable magnitude.
+  // Solve the symmetric positive-definite 4x4 system A x = b (A given by its lower
+  // triangle, row-major in a 16-array) by Gaussian elimination with partial pivoting.
+  function solve4(A, b, x){
+    const n = 4;
+    const M = new Float64Array(n * (n + 1));
+    for(let i = 0; i < n; i++){
+      for(let j = 0; j < n; j++) M[i*(n+1) + j] = i >= j ? A[i*n + j] : A[j*n + i];
+      M[i*(n+1) + n] = b[i];
+    }
+    for(let c = 0; c < n; c++){
+      let piv = c, best = Math.abs(M[c*(n+1) + c]);
+      for(let r = c + 1; r < n; r++){
+        const v = Math.abs(M[r*(n+1) + c]);
+        if(v > best){ best = v; piv = r; }
+      }
+      if(!(best > 1e-12)) return false;
+      if(piv !== c){
+        for(let j = c; j <= n; j++){
+          const t = M[c*(n+1) + j]; M[c*(n+1) + j] = M[piv*(n+1) + j]; M[piv*(n+1) + j] = t;
+        }
+      }
+      for(let r = c + 1; r < n; r++){
+        const f = M[r*(n+1) + c] / M[c*(n+1) + c];
+        for(let j = c; j <= n; j++) M[r*(n+1) + j] -= f * M[c*(n+1) + j];
+      }
+    }
+    for(let i = n - 1; i >= 0; i--){
+      let acc = M[i*(n+1) + n];
+      for(let j = i + 1; j < n; j++) acc -= M[i*(n+1) + j] * x[j];
+      x[i] = acc / M[i*(n+1) + i];
+    }
+    return true;
+  }
+
+  function lkRefineLevel(cur, ref, p, iters){
+    const w = cur.w, h = cur.h, s = cur.scale;
+    // pivot in this level's pixel-index coordinates (2x box downsample shifts centers by 0.5)
+    const cx = (work.cx - (s - 1) / 2) / s;
+    const cy = (work.cy - (s - 1) / 2) / s;
+    const L = 0.5 * Math.max(w, h);
+    let dx = p.dx / s, dy = p.dy / s, th = p.th, mg = p.mg;
+    const K = 12;   // Huber threshold, gray levels
+    const A = new Float64Array(16), B = new Float64Array(4), X = new Float64Array(4);
+    for(let it = 0; it < iters; it++){
+      const co = Math.cos(th), si = Math.sin(th), im = 1 / mg;
+      let a00 = 0, a10 = 0, a11 = 0, a20 = 0, a21 = 0, a22 = 0, a30 = 0, a31 = 0, a32 = 0, a33 = 0;
+      let b0 = 0, b1 = 0, b2 = 0, b3 = 0, n = 0;
+      for(let y = 1; y < h - 1; y++){
+        const ry = y - cy;
+        for(let x = 1; x < w - 1; x++){
+          const rx = x - cx;
+          const ux = co*rx - si*ry, uy = si*rx + co*ry;       // u = R(theta)(p - c)
+          const qx = ux*im + cx - dx;
+          const qy = uy*im + cy - dy;
+          if(qx < 1 || qx > w - 2 || qy < 1 || qy > h - 2) continue;
+          const x0 = qx | 0, y0 = qy | 0;
+          const fx = qx - x0, fy = qy - y0;
+          const i00 = y0*w + x0, i10 = i00 + 1, i01 = i00 + w, i11 = i01 + 1;
+          const w00 = (1-fx)*(1-fy), w10 = fx*(1-fy), w01 = (1-fx)*fy, w11 = fx*fy;
+          const v   = cur.img[i00]*w00 + cur.img[i10]*w10 + cur.img[i01]*w01 + cur.img[i11]*w11;
+          const gxv = cur.gx[i00]*w00  + cur.gx[i10]*w10  + cur.gx[i01]*w01  + cur.gx[i11]*w11;
+          const gyv = cur.gy[i00]*w00  + cur.gy[i10]*w10  + cur.gy[i01]*w01  + cur.gy[i11]*w11;
+          const r = v - ref.img[y*w + x];
+          const ar = r < 0 ? -r : r;
+          const wt = ar <= K ? 1 : K / ar;
+          // dq/ddx = (-1, 0), dq/ddy = (0, -1)
+          // dq/dtheta = R'(theta)(p - c) / m = (-uy, ux) / m
+          // dq/dm     = -u / m^2
+          // rotation and scale unknowns are scaled by L: theta' = theta L, m' = (m - 1) L
+          const j0 = -gxv;
+          const j1 = -gyv;
+          const j2 = (gxv * -uy + gyv * ux) * im / L;
+          const j3 = -(gxv * ux + gyv * uy) * im * im / L;
+          a00 += wt*j0*j0;
+          a10 += wt*j1*j0; a11 += wt*j1*j1;
+          a20 += wt*j2*j0; a21 += wt*j2*j1; a22 += wt*j2*j2;
+          a30 += wt*j3*j0; a31 += wt*j3*j1; a32 += wt*j3*j2; a33 += wt*j3*j3;
+          b0 += wt*j0*r; b1 += wt*j1*r; b2 += wt*j2*r; b3 += wt*j3*r;
+          n++;
+        }
+      }
+      if(n < 64) break;
+      const lam = 1 + 1e-3;
+      A[0] = a00*lam;
+      A[4] = a10;  A[5] = a11*lam;
+      A[8] = a20;  A[9] = a21;  A[10] = a22*lam;
+      A[12] = a30; A[13] = a31; A[14] = a32; A[15] = a33*lam;
+      B[0] = -b0; B[1] = -b1; B[2] = -b2; B[3] = -b3;
+      if(!solve4(A, B, X)) break;
+      // keep steps sane
+      const d0 = clamp(X[0], -3, 3);
+      const d1 = clamp(X[1], -3, 3);
+      const d2 = clamp(X[2] / L, -0.05, 0.05);
+      const d3 = clamp(X[3] / L, -0.05, 0.05);
+      dx += d0; dy += d1; th += d2; mg = clamp(mg + d3, 0.7, 1.4);
+      if(Math.abs(d0) < 0.005 && Math.abs(d1) < 0.005 && Math.abs(d2) < 2e-5 && Math.abs(d3) < 2e-5) break;
+    }
+    p.dx = dx * s;
+    p.dy = dy * s;
+    p.th = clamp(th, -0.6, 0.6);
+    p.mg = mg;
+  }
+
+  // Full estimate of the pose carrying cur onto ref (work px / rad / ratio). With `init`
+  // (previous solution) it warm-starts; without, it seeds from a coarse integer
+  // shift search.
+  function estimateRigid(curGray, refGray, init){
+    const curPyr = buildPyramid(curGray, true);
+    const refPyr = buildPyramid(refGray, false);
+    const coarse = curPyr[0];
+    let p;
+    if(init){
+      p = { dx: init.dx, dy: init.dy, th: init.th, mg: init.mg };
+    } else {
+      const maxRad = Math.floor((Math.min(coarse.w, coarse.h) - 8) / 2) - 2;
+      const rad = clamp(Math.round(coarse.w * searchRadius / 100), 2, Math.max(2, maxRad));
+      const s = findOffset(coarse.img, refPyr[0].img, coarse.w, coarse.h, rad);
+      p = { dx: s.dx * coarse.scale, dy: s.dy * coarse.scale, th: 0, mg: 1 };
+    }
+    lkRefineLevel(curPyr[0], refPyr[0], p, 10);
+    lkRefineLevel(curPyr[1], refPyr[1], p, 6);
+    lkRefineLevel(curPyr[2], refPyr[2], p, 4);
+    const err = scoreRigid(curGray, refGray, work.w, work.h, p.dx, p.dy, p.th, p.mg, work.cx, work.cy, 4);
+    return { dx: p.dx, dy: p.dy, th: p.th, mg: p.mg, err };
+  }
+
+  // refWork(p) <- (1-a) refWork(p) + a cur(q(p))
+  function updateReferenceRigid(curGray, p, alpha){
+    const w = work.w, h = work.h, cx = work.cx, cy = work.cy;
+    const co = Math.cos(p.th) / p.mg, si = Math.sin(p.th) / p.mg;
+    for(let y = 0; y < h; y++){
+      const ry = y - cy;
+      for(let x = 0; x < w; x++){
+        const rx = x - cx;
+        const qx = co*rx - si*ry + cx - p.dx;
+        const qy = si*rx + co*ry + cy - p.dy;
+        if(qx < 0 || qx > w - 1.001 || qy < 0 || qy > h - 1.001) continue;
+        const i = y*w + x;
+        refWork[i] = refWork[i] * (1 - alpha) + bilinearSample(curGray, w, h, qx, qy) * alpha;
+      }
+    }
+  }
+
+  const LOCK_THRESH = 10;
+  const WEAK_THRESH = 32;
+
+  function processAlignment(frame){
+    const curGray = grayFromSource(frame);
+    if(!refWork){
+      refWork = curGray;
+      seedFine(frame);
+      prevEst = null;
+      currentWarp = { dx: 0, dy: 0, th: 0, mg: 1 };
+      currentOffsetPx = [0, 0];
+      setStatus('locked', 0);
+      return true;
+    }
+    // warm start from the last solution; fall back to a cold start when not locked
+    let est = prevEst ? estimateRigid(curGray, refWork, prevEst) : null;
+    if(!est || !(est.err <= LOCK_THRESH)){
+      const cold = estimateRigid(curGray, refWork, null);
+      if(!est || Number.isNaN(est.err) || cold.err < est.err) est = cold;
+    }
+    if(!(est.err <= WEAK_THRESH)){
+      // lost tracking: hard reset onto this frame
+      resetStack();
+      refWork = curGray;
+      seedFine(frame);
+      prevEst = null;
+      currentWarp = { dx: 0, dy: 0, th: 0, mg: 1 };
+      currentOffsetPx = [0, 0];
+      setStatus('lost', Number.isFinite(est.err) ? est.err : 99);
+      return true;
+    }
+    updateReferenceRigid(curGray, est, 0.08);
+    processFlow(frame, est);
+    prevEst = { dx: est.dx, dy: est.dy, th: est.th, mg: est.mg };
+    currentOffsetPx = [est.dx, est.dy];
+    currentWarp = { dx: est.dx * work.f, dy: est.dy * work.f, th: est.th, mg: est.mg };
+    setStatus(est.err > LOCK_THRESH ? 'weak' : 'locked', est.err);
+    return true;
+  }
+
+  // ---------- render loop ----------
+  // A warp is {dx, dy, th, mg}: displacement at the video center in video px (image
+  // space, +x right, +y down), rotation about that center in radians, and the
+  // magnification applied to the captured frame (1 = none, >1 enlarges it). The shader
+  // does the image-space to UV (y-up) conversion itself. Auto and manual both pass
+  // through accumulatePass(warp).
+
+  function uploadSource(src){
+    gl.bindTexture(gl.TEXTURE_2D, videoTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src);
+  }
+
+  function accumulatePass(warp, flow){
+    warp = warp || currentWarp;
+    if(flow === undefined) flow = currentFlow;
+    const src = targets[pingIndex];
+    const dst = targets[1 - pingIndex];
+    gl.bindFramebuffer(gl.FRAMEBUFFER, dst.fbo);
+    gl.viewport(0, 0, accumW, accumH);
+    gl.useProgram(accumProgram);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, videoTex);
+    gl.uniform1i(accumUniforms.uVideo, 0);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, src.tex);
+    gl.uniform1i(accumUniforms.uPrevAccum, 1);
+    gl.uniform2f(accumUniforms.uVideoSize, videoW, videoH);
+    gl.uniform2f(accumUniforms.uDispPx, warp.dx, warp.dy);
+    gl.uniform2f(accumUniforms.uRot, Math.cos(warp.th), Math.sin(warp.th));
+    gl.uniform1f(accumUniforms.uMag, warp.mg);
+    gl.uniform1f(accumUniforms.uDecay, decay);
+    gl.uniform1f(accumUniforms.uSigma, (mode === 'manual' && uniformChk.checked) ? 1000.0 : sigma);
+    gl.uniform1f(accumUniforms.uMinWeight, 0.03);
+    gl.uniform1i(accumUniforms.uCubic, parseInt(resampleSel.value, 10));
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, flowTex);
+    if(flow){
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG16F, flow.cols, flow.rows, 0, gl.RG, gl.FLOAT, flow.data);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    }
+    gl.uniform1i(accumUniforms.uFlow, 2);
+    gl.uniform1i(accumUniforms.uFlowOn, flow ? 1 : 0);
+    gl.activeTexture(gl.TEXTURE0);
+    drawQuad();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    pingIndex = 1 - pingIndex;
+  }
+
+  function freeSharpTargets(){
+    if(!sharpTargets) return;
+    for(const t of sharpTargets.t){ gl.deleteTexture(t.tex); gl.deleteFramebuffer(t.fbo); }
+    sharpTargets = null;
+  }
+  function ensureSharpTargets(){
+    if(sharpTargets && sharpTargets.w === accumW && sharpTargets.h === accumH) return;
+    freeSharpTargets();
+    sharpTargets = { w: accumW, h: accumH, t: [createAccumTarget(accumW, accumH), createAccumTarget(accumW, accumH)] };
+  }
+  function blurPass(srcTex, dst, stepX, stepY, sigma, radius, fromAccum){
+    gl.bindFramebuffer(gl.FRAMEBUFFER, dst.fbo);
+    gl.viewport(0, 0, accumW, accumH);
+    gl.useProgram(blurProgram);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, srcTex);
+    gl.uniform1i(blurUniforms.uSrc, 0);
+    gl.uniform2f(blurUniforms.uStep, stepX, stepY);
+    gl.uniform1f(blurUniforms.uSigma, sigma);
+    gl.uniform1i(blurUniforms.uRadius, radius);
+    gl.uniform1i(blurUniforms.uFromAccum, fromAccum);
+    drawQuad();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  }
+
+  function displayPass(){
+    const acc = targets[pingIndex];
+    let blurTex = acc.tex;
+    const amt = floatExt ? sharpAmt : 0;
+    if(amt > 0){
+      ensureSharpTargets();
+      const sigma = Math.max(0.2, sharpRadius * (accumW / videoW));   // input px -> output px
+      const radius = Math.min(12, Math.ceil(3 * sigma));
+      blurPass(acc.tex, sharpTargets.t[0], 1 / accumW, 0, sigma, radius, 1);
+      blurPass(sharpTargets.t[0].tex, sharpTargets.t[1], 0, 1 / accumH, sigma, radius, 0);
+      blurTex = sharpTargets.t[1].tex;
+    }
+    gl.viewport(0, 0, glcanvas.width, glcanvas.height);
+    gl.useProgram(displayProgram);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, acc.tex);
+    gl.uniform1i(displayUniforms.uAccum, 0);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, blurTex);
+    gl.uniform1i(displayUniforms.uBlur, 1);
+    gl.uniform1f(displayUniforms.uSharpAmt, amt);
+    gl.uniform1i(displayUniforms.uViewMode, viewMode);
+    gl.uniform1f(displayUniforms.uConfNorm, Math.max(4, frameCounter));
+    drawQuad();
+  }
+
+  // Re-draw the stack after a display-only setting changes while no new frames arrive
+  // (auto mode paused or ended). Manual mode redraws every animation frame anyway.
+  function redrawDisplay(){
+    if(accumW && targets && mode === 'auto') displayPass();
+  }
+
+  function drawReticle(){
+    overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+    if(!showReticleChk.checked) return;
+    const cx = overlay.width * 0.12;
+    const cy = overlay.height - overlay.height * 0.12;
+    // scale offset (work px) into a visible on-screen displacement
+    const scaleToScreen = (overlay.width / work.w);
+    const px = currentOffsetPx[0] * scaleToScreen;
+    const py = currentOffsetPx[1] * scaleToScreen;
+
+    offsetTrail.push([cx + px, cy + py]);
+    if(offsetTrail.length > MAX_TRAIL) offsetTrail.shift();
+
+    overlayCtx.save();
+    overlayCtx.strokeStyle = 'rgba(255,176,32,0.35)';
+    overlayCtx.lineWidth = 1.5;
+    overlayCtx.beginPath();
+    offsetTrail.forEach((p, i) => { i === 0 ? overlayCtx.moveTo(p[0], p[1]) : overlayCtx.lineTo(p[0], p[1]); });
+    overlayCtx.stroke();
+
+    overlayCtx.beginPath();
+    overlayCtx.arc(cx, cy, 36, 0, Math.PI*2);
+    overlayCtx.strokeStyle = 'rgba(233,239,233,0.25)';
+    overlayCtx.lineWidth = 1;
+    overlayCtx.stroke();
+    overlayCtx.beginPath();
+    overlayCtx.moveTo(cx-44, cy); overlayCtx.lineTo(cx+44, cy);
+    overlayCtx.moveTo(cx, cy-44); overlayCtx.lineTo(cx, cy+44);
+    overlayCtx.strokeStyle = 'rgba(233,239,233,0.15)';
+    overlayCtx.stroke();
+
+    overlayCtx.beginPath();
+    overlayCtx.moveTo(cx, cy);
+    overlayCtx.lineTo(cx + px, cy + py);
+    overlayCtx.strokeStyle = trackStatus === 'locked' ? '#6fdc8c' : trackStatus === 'weak' ? '#ffcf5c' : '#ff6b5e';
+    overlayCtx.lineWidth = 2;
+    overlayCtx.stroke();
+    overlayCtx.beginPath();
+    overlayCtx.arc(cx + px, cy + py, 4, 0, Math.PI*2);
+    overlayCtx.fillStyle = overlayCtx.strokeStyle;
+    overlayCtx.fill();
+    overlayCtx.restore();
+  }
+
+  function updateStatsUI(ts){
+    if(lastTs){
+      const dt = ts - lastTs;
+      const fps = 1000 / Math.max(1, dt);
+      fpsSmoothed = fpsSmoothed ? fpsSmoothed * 0.9 + fps * 0.1 : fps;
+    }
+    lastTs = ts;
+    frameValEl.textContent = String(frameCounter);
+    fpsValEl.textContent = fpsSmoothed.toFixed(0);
+    statFlow.textContent = !tileFlowChk.checked ? 'off'
+      : flowStat ? flowStat.rms.toFixed(2) + ' px rms, max ' + flowStat.max.toFixed(2) + ' (' + flowStat.good + '/' + flowStat.total + ')'
+      : '\u2014';
+    offsetValEl.textContent = currentWarp.dx.toFixed(1) + ', ' + currentWarp.dy.toFixed(1) + ' px, ' +
+      (currentWarp.th * 180 / Math.PI).toFixed(2) + '°, ×' + currentWarp.mg.toFixed(4);
+  }
+
+  function frameTick(){
+    if(!running || mode !== 'auto') return;
+    if(video.paused || video.ended){
+      scheduleNext();
+      return;
+    }
+    if(video.readyState < 2){ scheduleNext(); return; }
+    if(accumW !== 0 && (video.videoWidth !== videoW || video.videoHeight !== videoH)){
+      accumW = 0;   // the source changed size: rebuild everything at the new size
+    }
+    if(accumW === 0){
+      if(!initBuffers()){ scheduleNext(); return; }
+    }
+    const frame = grabFrame();
+    processAlignment(frame);
+    uploadSource(frame);
+    accumulatePass();
+    displayPass();
+    drawReticle();
+    frameCounter++;
+    updateStatsUI(performance.now());
+    scheduleNext();
+  }
+
+  function scheduleNext(){
+    if(!running || tickPending) return;
+    tickPending = true;
+    const cb = () => { tickPending = false; frameTick(); };
+    if(video.requestVideoFrameCallback){
+      video.requestVideoFrameCallback(cb);
+    } else {
+      requestAnimationFrame(cb);
+    }
+  }
+
+  function start(){
+    running = true;
+    accumW = 0; // force re-init on next tick once metadata is ready
+    scheduleNext();
+    if(mode === 'manual') startManualLoop();
+  }
+
+  // ---------- manual alignment mode ----------
+  // The preview is drawn with the 2D canvas in plain image space, completely
+  // independent of the GL warp. Committing goes through the real GL path, so any
+  // disagreement between "looks aligned in the preview" and "looks aligned in the
+  // stack" is a warp/space bug, not an estimator bug.
+  //
+  // Pose = (x, y, th): displacement at the video center in video px (image space,
+  // +x right, +y down) and rotation about that center in degrees, positive =
+  // counter-clockwise on screen. It carries the captured frame onto the reference.
+
+  const DEG = Math.PI / 180;
+
+  function manualReset(){
+    manual.refCanvas = null;
+    manual.heldCanvas = null;
+    manual.refScore = null;
+    manual.heldScore = null;
+    manual.auto = null;
+    manual.x = 0;
+    manual.y = 0;
+    manual.th = 0;
+    manual.mg = 1;
+    manual.resid = null;
+    manual.log.length = 0;
+    if(videoW){
+      previewCanvas.width = videoW;
+      previewCanvas.height = videoH;
+      residCanvas.width = videoW;
+      residCanvas.height = videoH;
+    }
+    manualDirty = true;
+  }
+
+  function ensureBuffers(){
+    if(accumW) return true;
+    return initBuffers();
+  }
+
+  function snapshotVideo(){
+    const c = document.createElement('canvas');
+    c.width = videoW; c.height = videoH;
+    c.getContext('2d').drawImage(video, 0, 0, videoW, videoH);
+    return c;
+  }
+
+  // Error of the held frame at a pose, same metric for every pose (work resolution).
+  function scoreVideoPose(vx, vy, thDeg, mg){
+    return scoreRigid(manual.heldScore, manual.refScore, work.w, work.h,
+      vx / work.f, vy / work.f, thDeg * DEG, mg, work.cx, work.cy, Math.round(work.w * 0.08));
+  }
+
+  // Runs the estimator the live loop uses, cold-started (coarse shift search, then
+  // shift + rotation refinement).
+  function computeAutoSuggestion(){
+    const est = estimateRigid(manual.heldScore, manual.refScore, null);
+    manual.auto = { x: est.dx * work.f, y: est.dy * work.f, th: est.th / DEG, mg: est.mg };
+  }
+
+  function commitToStack(canvas, mx, my, thDeg, mg, flow){
+    uploadSource(canvas);
+    accumulatePass({ dx: mx, dy: my, th: thDeg * DEG, mg: mg }, flow || null);
+    frameCounter++;
+  }
+
+  const f2 = v => (v >= 0 ? '+' : '') + v.toFixed(2);
+  const poseStr = (x, y, th, mg) => f2(x) + ', ' + f2(y) + ', ' + f2(th) + '°, ×' + mg.toFixed(4);
+
+  function clearHeld(){
+    manual.heldCanvas = null;
+    manual.heldScore = null;
+    manual.auto = null;
+    manual.x = 0;
+    manual.y = 0;
+    manual.th = 0;
+    manual.mg = 1;
+    manual.resid = null;
+  }
+
+  function manualCapture(){
+    if(!ensureBuffers() || video.readyState < 2){
+      showError('Start a camera or load a video before capturing.');
+      return;
+    }
+    errorBanner.style.display = 'none';
+    const snap = snapshotVideo();
+    if(!manual.refCanvas){
+      manual.refCanvas = snap;
+      manual.refScore = grayFromSource(snap);
+      commitToStack(snap, 0, 0, 0, 1);
+      manual.log.push('frame ' + frameCounter + '  reference');
+    } else {
+      manual.heldCanvas = snap;
+      manual.heldScore = grayFromSource(snap);
+      manual.x = 0;
+      manual.y = 0;
+      manual.th = 0;
+      manual.mg = 1;
+      manual.resid = null;
+      computeAutoSuggestion();
+    }
+    manualDirty = true;
+  }
+
+  function manualCommit(){
+    if(!manual.heldCanvas) return;
+    const eM = scoreVideoPose(manual.x, manual.y, manual.th, manual.mg);
+    let line = 'frame ' + (frameCounter + 1) + '  yours ' + poseStr(manual.x, manual.y, manual.th, manual.mg) + ' err ' + eM.toFixed(2);
+    if(manual.auto){
+      const a = manual.auto;
+      const eA = scoreVideoPose(a.x, a.y, a.th, a.mg);
+      line += '  auto ' + poseStr(a.x, a.y, a.th, a.mg) + ' err ' + eA.toFixed(2);
+    }
+    let flow = null;
+    if(tileFlowChk.checked){
+      const mf = manualFlow();
+      if(mf){ flow = mf.flow; line += '  tiles rms ' + mf.stat.rms.toFixed(2) + ' px (' + mf.stat.good + '/' + mf.stat.total + ')'; }
+    }
+    commitToStack(manual.heldCanvas, manual.x, manual.y, manual.th, manual.mg, flow);
+    manual.log.push(line);
+    clearHeld();
+    manualDirty = true;
+  }
+
+  function manualDiscard(){
+    if(!manual.heldCanvas) return;
+    clearHeld();
+    manualDirty = true;
+  }
+
+  // Any argument may be undefined to leave that component alone.
+  function setManualPose(x, y, th, mg){
+    if(!manual.heldCanvas) return;
+    manual.resid = null;     // the measurement belonged to the previous pose
+    if(x !== undefined) manual.x = Math.round(x * 1000) / 1000;
+    if(y !== undefined) manual.y = Math.round(y * 1000) / 1000;
+    if(th !== undefined) manual.th = clamp(Math.round(th * 1000) / 1000, -45, 45);
+    if(mg !== undefined) manual.mg = clamp(Math.round(mg * 100000) / 100000, 0.5, 2);
+    manualDirty = true;
+  }
+  function nudge(dx, dy, dth, dmg){
+    setManualPose(manual.x + dx, manual.y + dy, manual.th + (dth || 0), manual.mg + (dmg || 0));
+  }
+
+  // ---------- tile flow ----------
+  // The global pose leaves a smooth residual (lens distortion, rolling shutter, depth).
+  // A grid of nodes, each with a small translation found by Lucas-Kanade over an
+  // overlapping window, models it; the shader interpolates between nodes.
+  // Convention: Hw(p) ~ ref(p - s) with Hw the captured frame warped by the global pose,
+  // so the aligned frame is  A(u) = Hw(u + s(u)).
+
+  const FLOW_STRIDE = 32;   // node spacing, fine px
+  const FLOW_WIN = 64;      // window per node, fine px
+  const FLOW_LAM_MIN = 2;
+  const FLOW_MAX = 3;       // reject |s| beyond this, fine px
+
+  function flowGridSize(w, h){
+    return { cols: Math.max(2, Math.round(w / FLOW_STRIDE)), rows: Math.max(2, Math.round(h / FLOW_STRIDE)) };
+  }
+
+  function smooth2(img, w, h){ return smooth121(smooth121(img, w, h), w, h); }
+
+  function fineGray(src){
+    fine.ctx.drawImage(src, 0, 0, fine.w, fine.h);
+    const d = fine.ctx.getImageData(0, 0, fine.w, fine.h).data;
+    const out = new Float32Array(fine.w * fine.h);
+    for(let i = 0, p = 0; i < out.length; i++, p += 4) out[i] = d[p] * 0.299 + d[p+1] * 0.587 + d[p+2] * 0.114;
+    return out;
+  }
+
+  function seedFine(frame){
+    if(!fine.w) return;
+    refFineS = smooth2(fineGray(frame), fine.w, fine.h);
+    prevFlow = null; currentFlow = null; flowStat = null;
+  }
+
+  // translation-only LK for one window; returns null when the window can't be trusted
+  function solveNode(Rs, g, Hs, ok, w, h, x0, x1, y0, y1, sx, sy){
+    if((x1 - x0) * (y1 - y0) < 0.5 * FLOW_WIN * FLOW_WIN) return null;
+    const total = ((x1 - x0) >> 1) * ((y1 - y0) >> 1);   // every other pixel in each direction
+    let lam = 0;
+    for(let it = 0; it < 5; it++){
+      let a00 = 0, a01 = 0, a11 = 0, b0 = 0, b1 = 0, n = 0;
+      for(let y = y0; y < y1; y += 2){
+        for(let x = x0; x < x1; x += 2){
+          const i = y*w + x;
+          if(!ok[i]) continue;
+          const qx = x - sx, qy = y - sy;
+          if(qx < 1 || qx > w - 2 || qy < 1 || qy > h - 2) continue;
+          const xi = qx | 0, yi = qy | 0, fx = qx - xi, fy = qy - yi;
+          const i00 = yi*w + xi, i10 = i00 + 1, i01 = i00 + w, i11 = i01 + 1;
+          const w00 = (1-fx)*(1-fy), w10 = fx*(1-fy), w01 = (1-fx)*fy, w11 = fx*fy;
+          const rq  = Rs[i00]*w00   + Rs[i10]*w10   + Rs[i01]*w01   + Rs[i11]*w11;
+          const gxq = g.gx[i00]*w00 + g.gx[i10]*w10 + g.gx[i01]*w01 + g.gx[i11]*w11;
+          const gyq = g.gy[i00]*w00 + g.gy[i10]*w10 + g.gy[i01]*w01 + g.gy[i11]*w11;
+          const e = Hs[i] - rq;
+          a00 += gxq*gxq; a01 += gxq*gyq; a11 += gyq*gyq;
+          b0 += gxq*e; b1 += gyq*e;
+          n++;
+        }
+      }
+      if(n < 0.6 * total) return null;
+      const det = a00*a11 - a01*a01, tr = a00 + a11;
+      lam = (tr - Math.sqrt(Math.max(0, tr*tr - 4*det))) / 2 / n;
+      if(!(lam >= FLOW_LAM_MIN) || !(det > 0)) return null;
+      const dsx = -(a11*b0 - a01*b1) / det;
+      const dsy = -(-a01*b0 + a00*b1) / det;
+      sx += dsx; sy += dsy;
+      if(Math.abs(sx) > FLOW_MAX || Math.abs(sy) > FLOW_MAX) return null;
+      if(Math.abs(dsx) < 0.003 && Math.abs(dsy) < 0.003) break;
+    }
+    return { sx, sy, lam };
+  }
+
+  function solveFlowNodes(Rs, g, Hs, ok, w, h, grid, init){
+    const cols = grid.cols, rows = grid.rows, n = cols * rows, half = FLOW_WIN / 2;
+    const nodes = { cols, rows, sx: new Float32Array(n), sy: new Float32Array(n), good: new Uint8Array(n), nGood: 0 };
+    for(let r = 0; r < rows; r++){
+      for(let c = 0; c < cols; c++){
+        const idx = r*cols + c;
+        const ncx = (c + 0.5) * w / cols, ncy = (r + 0.5) * h / rows;
+        const x0 = Math.max(0, Math.round(ncx - half)), x1 = Math.min(w, Math.round(ncx + half));
+        const y0 = Math.max(0, Math.round(ncy - half)), y1 = Math.min(h, Math.round(ncy + half));
+        let res = null;
+        if(init) res = solveNode(Rs, g, Hs, ok, w, h, x0, x1, y0, y1, init.sx[idx], init.sy[idx]);
+        if(!res) res = solveNode(Rs, g, Hs, ok, w, h, x0, x1, y0, y1, 0, 0);
+        if(res){ nodes.sx[idx] = res.sx; nodes.sy[idx] = res.sy; nodes.good[idx] = 1; nodes.nGood++; }
+      }
+    }
+    return nodes;
+  }
+
+  function median3(a){ a.sort((x, y) => x - y); return a[a.length >> 1]; }
+
+  // drop nodes that disagree with their neighbors, then fill the holes by diffusion
+  function cleanFlow(nodes){
+    const { cols, rows, sx, sy, good } = nodes;
+    const drop = [];
+    for(let r = 0; r < rows; r++){
+      for(let c = 0; c < cols; c++){
+        const idx = r*cols + c;
+        if(!good[idx]) continue;
+        const nx = [], ny = [];
+        for(let dr = -1; dr <= 1; dr++) for(let dc = -1; dc <= 1; dc++){
+          if(!dr && !dc) continue;
+          const rr = r + dr, cc = c + dc;
+          if(rr < 0 || rr >= rows || cc < 0 || cc >= cols) continue;
+          const j = rr*cols + cc;
+          if(good[j]){ nx.push(sx[j]); ny.push(sy[j]); }
+        }
+        if(nx.length >= 3 && Math.hypot(sx[idx] - median3(nx), sy[idx] - median3(ny)) > 0.8) drop.push(idx);
+      }
+    }
+    for(const idx of drop){ good[idx] = 0; nodes.nGood--; }
+    if(nodes.nGood === 0){ sx.fill(0); sy.fill(0); return nodes; }
+    const fx = Float32Array.from(sx), fy = Float32Array.from(sy);
+    for(let i = 0; i < fx.length; i++) if(!good[i]){ fx[i] = 0; fy[i] = 0; }
+    for(let it = 0; it < 80; it++){
+      for(let r = 0; r < rows; r++){
+        for(let c = 0; c < cols; c++){
+          const idx = r*cols + c;
+          if(good[idx]) continue;
+          let ax = 0, ay = 0, k = 0;
+          if(c > 0){ ax += fx[idx-1]; ay += fy[idx-1]; k++; }
+          if(c < cols-1){ ax += fx[idx+1]; ay += fy[idx+1]; k++; }
+          if(r > 0){ ax += fx[idx-cols]; ay += fy[idx-cols]; k++; }
+          if(r < rows-1){ ax += fx[idx+cols]; ay += fy[idx+cols]; k++; }
+          fx[idx] = ax / k; fy[idx] = ay / k;
+        }
+      }
+    }
+    nodes.sx = fx; nodes.sy = fy;
+    return nodes;
+  }
+
+  function zeroNodes(grid){
+    const n = grid.cols * grid.rows;
+    return { cols: grid.cols, rows: grid.rows, sx: new Float32Array(n), sy: new Float32Array(n), good: new Uint8Array(n), nGood: 0 };
+  }
+
+  // everything from "captured frame + global pose" to a cleaned node field
+  function flowBetween(refS, curGray, w, h, pose, init){
+    const hw = warpHeldToRef(curGray, w, h, pose);
+    const Hs = smooth2(hw.img, w, h);
+    const ok = erodeMask(hw.valid, w, h, 3);
+    const g = gradientImages(refS, w, h);
+    const grid = flowGridSize(w, h);
+    const use = init && init.cols === grid.cols && init.rows === grid.rows ? init : null;
+    let nodes = cleanFlow(solveFlowNodes(refS, g, Hs, ok, w, h, grid, use));
+    if(nodes.nGood < Math.max(4, 0.15 * grid.cols * grid.rows)) nodes = zeroNodes(grid);
+    return { nodes, Hs, ok };
+  }
+
+  // GL / stats form, shifts in video px
+  function nodesToFlow(nodes){
+    const n = nodes.cols * nodes.rows, data = new Float32Array(2 * n);
+    let sum2 = 0, mx = 0;
+    for(let i = 0; i < n; i++){
+      const vx = nodes.sx[i] / fine.k, vy = nodes.sy[i] / fine.k;
+      data[2*i] = vx; data[2*i + 1] = vy;
+      sum2 += vx*vx + vy*vy; mx = Math.max(mx, Math.hypot(vx, vy));
+    }
+    return { flow: { cols: nodes.cols, rows: nodes.rows, data },
+             stat: { rms: Math.sqrt(sum2 / n), max: mx, good: nodes.nGood, total: n } };
+  }
+
+  // refFineS <- (1-a) refFineS + a Hs(u + s(u))
+  function updateRefFine(Hs, ok, nodes, alpha){
+    const w = fine.w, h = fine.h, cols = nodes.cols, rows = nodes.rows;
+    const c0 = new Int32Array(w), ct = new Float32Array(w), r0 = new Int32Array(h), rt = new Float32Array(h);
+    for(let x = 0; x < w; x++){
+      let f = (x + 0.5) * cols / w - 0.5, i = Math.floor(f), t = f - i;
+      if(i < 0){ i = 0; t = 0; } else if(i >= cols - 1){ i = cols - 1; t = 0; }
+      c0[x] = i; ct[x] = t;
+    }
+    for(let y = 0; y < h; y++){
+      let f = (y + 0.5) * rows / h - 0.5, i = Math.floor(f), t = f - i;
+      if(i < 0){ i = 0; t = 0; } else if(i >= rows - 1){ i = rows - 1; t = 0; }
+      r0[y] = i; rt[y] = t;
+    }
+    const { sx, sy } = nodes;
+    for(let y = 0; y < h; y++){
+      const ra = r0[y] * cols, rb = Math.min(r0[y] + 1, rows - 1) * cols, ty = rt[y];
+      for(let x = 0; x < w; x++){
+        const ca = c0[x], cb = Math.min(ca + 1, cols - 1), tx = ct[x];
+        const a = ra + ca, b = ra + cb, c = rb + ca, d = rb + cb;
+        const w00 = (1-tx)*(1-ty), w10 = tx*(1-ty), w01 = (1-tx)*ty, w11 = tx*ty;
+        const ux = x + sx[a]*w00 + sx[b]*w10 + sx[c]*w01 + sx[d]*w11;
+        const uy = y + sy[a]*w00 + sy[b]*w10 + sy[c]*w01 + sy[d]*w11;
+        if(ux < 0 || ux > w - 1.001 || uy < 0 || uy > h - 1.001) continue;
+        const ix = Math.round(ux), iy = Math.round(uy);
+        if(!ok[iy*w + ix]) continue;
+        const i = y*w + x;
+        refFineS[i] = refFineS[i] * (1 - alpha) + bilinearSample(Hs, w, h, ux, uy) * alpha;
+      }
+    }
+  }
+
+  function processFlow(frame, est){
+    if(!tileFlowChk.checked || !fine.w){ currentFlow = null; flowStat = null; return; }
+    if(!refFineS){ seedFine(frame); return; }
+    const k = work.f * fine.k;     // work px -> fine px
+    const pose = { dx: est.dx * k, dy: est.dy * k, th: est.th, mg: est.mg };
+    const res = flowBetween(refFineS, fineGray(frame), fine.w, fine.h, pose, prevFlow);
+    prevFlow = res.nodes;
+    const out = nodesToFlow(res.nodes);
+    currentFlow = out.flow; flowStat = out.stat;
+    updateRefFine(res.Hs, res.ok, res.nodes, 0.08);
+  }
+
+  // manual mode: flow between the captured reference and held frames at the current pose
+  function manualFlow(){
+    if(!manual.refCanvas || !manual.heldCanvas || !fine.w) return null;
+    const refS = smooth2(grayAtSize(manual.refCanvas, fine.w, fine.h), fine.w, fine.h);
+    const heldG = grayAtSize(manual.heldCanvas, fine.w, fine.h);
+    const pose = { dx: manual.x * fine.k, dy: manual.y * fine.k, th: manual.th * DEG, mg: manual.mg };
+    const res = flowBetween(refS, heldG, fine.w, fine.h, pose, null);
+    return nodesToFlow(res.nodes);
+  }
+
+  // ---------- residual diagnostic ----------
+  // After a global pose is applied, how far does each tile of the captured frame still sit
+  // from the reference?  Gray images of equal size (w x h); the pose (dx, dy in px, th in
+  // radians, mg ratio) is in the same pixels.  Each tile gets s, the displacement of the
+  // warped captured frame's content relative to the reference (+x right, +y down):
+  // Hw(p) ~ ref(p - s).  A tile is only reported when it has enough texture.
+
+  function warpHeldToRef(held, w, h, pose){
+    const img = new Float32Array(w * h), valid = new Uint8Array(w * h);
+    const cx = (w - 1) / 2, cy = (h - 1) / 2;
+    const co = Math.cos(pose.th) / pose.mg, si = Math.sin(pose.th) / pose.mg;
+    for(let y = 0; y < h; y++){
+      const ry = y - cy;
+      for(let x = 0; x < w; x++){
+        const rx = x - cx;
+        const qx = co*rx - si*ry + cx - pose.dx;
+        const qy = si*rx + co*ry + cy - pose.dy;
+        if(qx < 0 || qx > w - 1.001 || qy < 0 || qy > h - 1.001) continue;
+        img[y*w + x] = bilinearSample(held, w, h, qx, qy);
+        valid[y*w + x] = 1;
+      }
+    }
+    return { img, valid };
+  }
+
+  function smooth121(img, w, h){
+    const tmp = new Float32Array(w * h), out = new Float32Array(w * h);
+    for(let y = 0; y < h; y++){
+      for(let x = 0; x < w; x++){
+        const xm = x > 0 ? x - 1 : 0, xp = x < w - 1 ? x + 1 : w - 1;
+        tmp[y*w + x] = 0.25 * img[y*w + xm] + 0.5 * img[y*w + x] + 0.25 * img[y*w + xp];
+      }
+    }
+    for(let y = 0; y < h; y++){
+      const ym = y > 0 ? y - 1 : 0, yp = y < h - 1 ? y + 1 : h - 1;
+      for(let x = 0; x < w; x++){
+        out[y*w + x] = 0.25 * tmp[ym*w + x] + 0.5 * tmp[y*w + x] + 0.25 * tmp[yp*w + x];
+      }
+    }
+    return out;
+  }
+
+  // keep a pixel only if every pixel within r (box) is valid
+  function erodeMask(mask, w, h, r){
+    const tmp = new Uint8Array(w * h), out = new Uint8Array(w * h);
+    for(let y = 0; y < h; y++){
+      for(let x = 0; x < w; x++){
+        let v = 1;
+        for(let i = -r; i <= r && v; i++){
+          const xx = x + i;
+          if(xx < 0 || xx >= w || !mask[y*w + xx]) v = 0;
+        }
+        tmp[y*w + x] = v;
+      }
+    }
+    for(let y = 0; y < h; y++){
+      for(let x = 0; x < w; x++){
+        let v = 1;
+        for(let i = -r; i <= r && v; i++){
+          const yy = y + i;
+          if(yy < 0 || yy >= h || !tmp[yy*w + x]) v = 0;
+        }
+        out[y*w + x] = v;
+      }
+    }
+    return out;
+  }
+
+  function residualTiles(refGray, heldGray, w, h, pose, tile){
+    const hw = warpHeldToRef(heldGray, w, h, pose);
+    const Hs = smooth121(smooth121(hw.img, w, h), w, h);
+    const Rs = smooth121(smooth121(refGray, w, h), w, h);
+    const g = gradientImages(Rs, w, h);
+    const ok = erodeMask(hw.valid, w, h, 3);
+    const cols = Math.max(1, Math.floor(w / tile)), rows = Math.max(1, Math.floor(h / tile));
+    const tiles = [];
+    for(let r = 0; r < rows; r++){
+      for(let c = 0; c < cols; c++){
+        const x0 = Math.round(c * w / cols), x1 = Math.round((c + 1) * w / cols);
+        const y0 = Math.round(r * h / rows), y1 = Math.round((r + 1) * h / rows);
+        const t = { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, sx: 0, sy: 0, ok: false, reason: '' };
+        tiles.push(t);
+        const total = (x1 - x0) * (y1 - y0);
+        let usable = 0;
+        for(let y = y0; y < y1; y++) for(let x = x0; x < x1; x++) if(ok[y*w + x]) usable++;
+        if(usable < 0.9 * total){ t.reason = 'edge'; continue; }
+        let sx = 0, sy = 0, lamMin = 0, bad = false;
+        for(let it = 0; it < 6; it++){
+          let a00 = 0, a01 = 0, a11 = 0, b0 = 0, b1 = 0, n = 0;
+          for(let y = y0; y < y1; y++){
+            for(let x = x0; x < x1; x++){
+              const i = y*w + x;
+              if(!ok[i]) continue;
+              const qx = x - sx, qy = y - sy;
+              if(qx < 1 || qx > w - 2 || qy < 1 || qy > h - 2) continue;
+              const x0i = qx | 0, y0i = qy | 0, fx = qx - x0i, fy = qy - y0i;
+              const i00 = y0i*w + x0i, i10 = i00 + 1, i01 = i00 + w, i11 = i01 + 1;
+              const w00 = (1-fx)*(1-fy), w10 = fx*(1-fy), w01 = (1-fx)*fy, w11 = fx*fy;
+              const rq  = Rs[i00]*w00   + Rs[i10]*w10   + Rs[i01]*w01   + Rs[i11]*w11;
+              const gxq = g.gx[i00]*w00 + g.gx[i10]*w10 + g.gx[i01]*w01 + g.gx[i11]*w11;
+              const gyq = g.gy[i00]*w00 + g.gy[i10]*w10 + g.gy[i01]*w01 + g.gy[i11]*w11;
+              const e = Hs[i] - rq;
+              a00 += gxq*gxq; a01 += gxq*gyq; a11 += gyq*gyq;
+              b0 += gxq*e; b1 += gyq*e;
+              n++;
+            }
+          }
+          if(n < 0.5 * total){ bad = true; break; }
+          const det = a00*a11 - a01*a01, tr = a00 + a11;
+          lamMin = (tr - Math.sqrt(Math.max(0, tr*tr - 4*det))) / 2 / n;
+          if(!(lamMin >= 2)){ t.reason = 'texture'; bad = true; break; }
+          const dsx = -(a11*b0 - a01*b1) / det;
+          const dsy = -(-a01*b0 + a00*b1) / det;
+          sx += dsx; sy += dsy;
+          if(Math.abs(sx) > 4 || Math.abs(sy) > 4){ t.reason = 'range'; bad = true; break; }
+          if(Math.abs(dsx) < 0.002 && Math.abs(dsy) < 0.002) break;
+        }
+        if(bad){ if(!t.reason) t.reason = 'edge'; continue; }
+        t.sx = sx; t.sy = sy; t.ok = true;
+      }
+    }
+    return { tiles, cols, rows };
+  }
+
+  // scale converts the residual image's pixels to input-video pixels
+  function summarizeResidual(tiles, scale){
+    const ok = tiles.filter(t => t.ok);
+    if(!ok.length) return null;
+    let mx = 0, my = 0;
+    for(const t of ok){ mx += t.sx; my += t.sy; }
+    mx /= ok.length; my /= ok.length;
+    let v = 0, mag = 0;
+    for(const t of ok){
+      v += (t.sx - mx) ** 2 + (t.sy - my) ** 2;
+      mag = Math.max(mag, Math.hypot(t.sx, t.sy));
+    }
+    return { n: ok.length, total: tiles.length, mx: mx * scale, my: my * scale,
+             rmsVar: Math.sqrt(v / ok.length) * scale, max: mag * scale };
+  }
+
+  function residualVerdict(sum){
+    if(!sum || sum.n < 6) return 'too little texture to judge';
+    if(sum.rmsVar < 0.15) return 'no, global fit is enough';
+    if(sum.rmsVar < 0.30) return 'borderline';
+    return 'yes, tiles would help';
+  }
+
+  function grayAtSize(src, w, h){
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const x = c.getContext('2d', { willReadFrequently: true });
+    x.drawImage(src, 0, 0, w, h);
+    const d = x.getImageData(0, 0, w, h).data;
+    const out = new Float32Array(w * h);
+    for(let i = 0, p = 0; i < out.length; i++, p += 4) out[i] = d[p] * 0.299 + d[p+1] * 0.587 + d[p+2] * 0.114;
+    return out;
+  }
+
+  function measureResidual(){
+    if(!manual.heldCanvas) return;
+    const rw = Math.min(videoW, 1280), rh = Math.round(videoH * rw / videoW), k = rw / videoW;
+    const refG = grayAtSize(manual.refCanvas, rw, rh), heldG = grayAtSize(manual.heldCanvas, rw, rh);
+    const pose = { dx: manual.x * k, dy: manual.y * k, th: manual.th * DEG, mg: manual.mg };
+    const res = residualTiles(refG, heldG, rw, rh, pose, 128);
+    manual.resid = { tiles: res.tiles, scale: 1 / k, summary: summarizeResidual(res.tiles, 1 / k) };
+    manualDirty = true;
+  }
+
+  function drawResidual(){
+    const ctx = residCtx, W = residCanvas.width, H = residCanvas.height;
+    ctx.clearRect(0, 0, W, H);
+    const r = manual.resid;
+    if(!r || !W) return;
+    const rect = residCanvas.getBoundingClientRect();
+    const px = rect.width ? W / rect.width : 1;      // canvas px per screen px, to keep strokes a constant size
+    const gain = 30;
+    ctx.lineWidth = 2 * px;
+    ctx.lineCap = 'round';
+    for(const t of r.tiles){
+      const x = t.cx * r.scale, y = t.cy * r.scale;
+      if(!t.ok){
+        ctx.fillStyle = 'rgba(170,170,170,0.75)';
+        ctx.beginPath(); ctx.arc(x, y, 3 * px, 0, Math.PI * 2); ctx.fill();
+        continue;
+      }
+      const vx = t.sx * r.scale, vy = t.sy * r.scale, mag = Math.hypot(vx, vy);
+      const col = mag < 0.15 ? '#6fdc8c' : mag < 0.30 ? '#ffcf5c' : '#ff6b5e';
+      const ex = x + vx * gain, ey = y + vy * gain;
+      ctx.strokeStyle = col; ctx.fillStyle = col;
+      ctx.beginPath(); ctx.arc(x, y, 2.5 * px, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(ex, ey); ctx.stroke();
+      if(mag * gain > 6 * px){
+        const a = Math.atan2(ey - y, ex - x), hl = 5 * px;
+        ctx.beginPath();
+        ctx.moveTo(ex, ey); ctx.lineTo(ex - hl * Math.cos(a - 0.5), ey - hl * Math.sin(a - 0.5));
+        ctx.moveTo(ex, ey); ctx.lineTo(ex - hl * Math.cos(a + 0.5), ey - hl * Math.sin(a + 0.5));
+        ctx.stroke();
+      }
+    }
+    ctx.font = (12 * px) + 'px sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.fillText('arrows ×' + gain + '  green < 0.15 px, amber < 0.30, red above', 8 * px, H - 8 * px);
+  }
+
+  function applyPreviewFilter(){
+    const m = previewModeSel.value;
+    previewCanvas.style.filter = m === 'difference' ? 'brightness(' + diffGainInput.value + ')' : 'none';
+    gainField.style.display = m === 'difference' ? '' : 'none';
+  }
+
+  // Canvas transform carrying a held-frame point q onto the reference: p = A q + b with
+  // A = m R(-theta) and b = c + A (d - c), c being the video center. Inverting gives
+  // q = R(theta)(p - c) / m + c - d, the same mapping the shader and estimator use.
+  function heldMatrix(x, y, thDeg, mg){
+    const t = thDeg * DEG, co = mg * Math.cos(t), si = mg * Math.sin(t);
+    const cx = videoW / 2, cy = videoH / 2;
+    const ux = x - cx, uy = y - cy;
+    // setTransform(a, b, c, d, e, f): x' = a x + c y + e,  y' = b x + d y + f
+    return [co, -si, si, co, cx + co*ux + si*uy, cy - si*ux + co*uy];
+  }
+
+  function drawPreview(ts){
+    const W = previewCanvas.width, H = previewCanvas.height;
+    if(!W || !H) return;
+    const ctx = previewCtx;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, H);
+    if(!manual.refCanvas) return;
+    if(!manual.heldCanvas){ ctx.drawImage(manual.refCanvas, 0, 0); return; }
+    const M = heldMatrix(manual.x, manual.y, manual.th, manual.mg);
+    const m = previewModeSel.value;
+    if(m === 'difference'){
+      // clip to where the transformed held frame actually covers the reference
+      const pt = (x, y) => [M[0]*x + M[2]*y + M[4], M[1]*x + M[3]*y + M[5]];
+      const corners = [pt(0, 0), pt(W, 0), pt(W, H), pt(0, H)];
+      ctx.save();
+      ctx.beginPath();
+      corners.forEach((c, i) => { i === 0 ? ctx.moveTo(c[0], c[1]) : ctx.lineTo(c[0], c[1]); });
+      ctx.closePath();
+      ctx.clip();
+      ctx.drawImage(manual.refCanvas, 0, 0);
+      ctx.globalCompositeOperation = 'difference';
+      ctx.setTransform(M[0], M[1], M[2], M[3], M[4], M[5]);
+      ctx.drawImage(manual.heldCanvas, 0, 0);
+      ctx.restore();
+    } else if(m === 'blend'){
+      ctx.drawImage(manual.refCanvas, 0, 0);
+      ctx.save();
+      ctx.globalAlpha = 0.5;
+      ctx.setTransform(M[0], M[1], M[2], M[3], M[4], M[5]);
+      ctx.drawImage(manual.heldCanvas, 0, 0);
+      ctx.restore();
+    } else if(Math.floor(ts / 300) % 2 === 1){
+      ctx.save();
+      ctx.setTransform(M[0], M[1], M[2], M[3], M[4], M[5]);
+      ctx.drawImage(manual.heldCanvas, 0, 0);
+      ctx.restore();
+    } else {
+      ctx.drawImage(manual.refCanvas, 0, 0);
+    }
+  }
+
+  function updateManualReadouts(){
+    const hasRef = !!manual.refCanvas;
+    const has = !!manual.heldCanvas;
+    previewEmpty.style.display = hasRef ? 'none' : 'flex';
+    previewEmpty.textContent = video.videoWidth
+      ? 'Capture a frame to set the reference.'
+      : 'Start a camera or load a video first.';
+    btnCommit.disabled = !has;
+    btnDiscard.disabled = !has;
+    btnZero.disabled = !has;
+    btnResidual.disabled = !has;
+    btnApplyAuto.disabled = !(has && manual.auto);
+    if(document.activeElement !== mxInput) mxInput.value = manual.x.toFixed(2);
+    if(document.activeElement !== myInput) myInput.value = manual.y.toFixed(2);
+    if(document.activeElement !== mthInput) mthInput.value = manual.th.toFixed(2);
+    mthSlider.value = String(manual.th);
+    if(document.activeElement !== mmgInput) mmgInput.value = manual.mg.toFixed(4);
+    mmgSlider.value = String(manual.mg);
+    mmgSliderVal.textContent = '×' + manual.mg.toFixed(4);
+    mthSliderVal.textContent = manual.th.toFixed(2) + '°';
+
+    let eM = NaN;
+    if(has){
+      const e0 = scoreVideoPose(0, 0, 0, 1);
+      eM = scoreVideoPose(manual.x, manual.y, manual.th, manual.mg);
+      mErrZero.textContent = e0.toFixed(2);
+      mErrManual.textContent = eM.toFixed(2);
+      if(manual.auto){
+        const a = manual.auto;
+        const eA = scoreVideoPose(a.x, a.y, a.th, a.mg);
+        const dist = Math.hypot(a.x - manual.x, a.y - manual.y);
+        mErrAuto.textContent = eA.toFixed(2);
+        mAutoOff.textContent = poseStr(a.x, a.y, a.th, a.mg) + ' (' + dist.toFixed(1) + ' px, ' + Math.abs(a.th - manual.th).toFixed(2) + '°, ' + (Math.abs(a.mg - manual.mg) * 100).toFixed(2) + '% scale from yours)';
+        mVerdict.textContent = Math.abs(eM - eA) < 0.05 ? 'about equal' : (eM < eA ? 'yours' : 'auto');
+      } else {
+        mErrAuto.textContent = '—'; mAutoOff.textContent = '—'; mVerdict.textContent = '—';
+      }
+    } else {
+      mErrZero.textContent = '—'; mErrManual.textContent = '—';
+      mErrAuto.textContent = '—'; mAutoOff.textContent = '—'; mVerdict.textContent = '—';
+    }
+
+    const rs = manual.resid && manual.resid.summary;
+    if(rs){
+      mResid.textContent = rs.rmsVar.toFixed(2) + ' px rms, max ' + rs.max.toFixed(2) + ' (' + rs.n + '/' + rs.total + ' tiles)';
+      mResidMean.textContent = f2(rs.mx) + ', ' + f2(rs.my) + ' px';
+      mResidVerdict.textContent = residualVerdict(rs);
+    } else if(manual.resid){
+      mResid.textContent = '\u2014'; mResidMean.textContent = '\u2014'; mResidVerdict.textContent = residualVerdict(null);
+    } else {
+      mResid.textContent = '\u2014'; mResidMean.textContent = '\u2014'; mResidVerdict.textContent = '\u2014';
+    }
+    drawResidual();
+
+    manualLogEl.textContent = manual.log.slice(-8).join('\n');
+    trackLabel.textContent = 'manual';
+    trackDot.className = 'dot ' + (hasRef ? 'ok' : '');
+    statTracking.textContent = 'manual';
+    statError.textContent = has ? eM.toFixed(2) : '—';
+    frameValEl.textContent = String(frameCounter);
+    offsetValEl.textContent = manual.x.toFixed(1) + ', ' + manual.y.toFixed(1) + ' px, ' + manual.th.toFixed(2) + '°, ×' + manual.mg.toFixed(4);
+  }
+
+  function manualLoop(ts){
+    if(mode !== 'manual'){ manualLooping = false; return; }
+    if(!accumW && video.videoWidth) ensureBuffers();
+    if(accumW && targets){
+      displayPass();
+      overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+      drawPreview(ts);
+    }
+    if(manualDirty){
+      manualDirty = false;
+      updateManualReadouts();
+    }
+    requestAnimationFrame(manualLoop);
+  }
+
+  function startManualLoop(){
+    if(manualLooping) return;
+    manualLooping = true;
+    requestAnimationFrame(manualLoop);
+  }
+
+  function setMode(next){
+    if(next === mode) return;
+    mode = next;
+    modeAutoBtn.setAttribute('aria-pressed', String(mode === 'auto'));
+    modeManualBtn.setAttribute('aria-pressed', String(mode === 'manual'));
+    manualPanel.style.display = mode === 'manual' ? 'flex' : 'none';
+    fpsPill.style.display = mode === 'manual' ? 'none' : '';
+    overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+    if(accumW) resetStack();
+    manualDirty = true;
+    if(mode === 'manual'){
+      applyPreviewFilter();
+      startManualLoop();
+    } else {
+      lastTs = 0;
+      scheduleNext();
+    }
+  }
+
+  function syncPauseLabel(){
+    btnPause.textContent = video.paused ? 'Resume source' : 'Pause source';
+  }
+
+  modeAutoBtn.addEventListener('click', () => setMode('auto'));
+  modeManualBtn.addEventListener('click', () => setMode('manual'));
+  btnCapture.addEventListener('click', manualCapture);
+  btnCommit.addEventListener('click', manualCommit);
+  btnDiscard.addEventListener('click', manualDiscard);
+  btnApplyAuto.addEventListener('click', () => {
+    if(manual.auto) setManualPose(manual.auto.x, manual.auto.y, manual.auto.th, manual.auto.mg);
+  });
+  btnZero.addEventListener('click', () => setManualPose(0, 0, 0, 1));
+  btnResidual.addEventListener('click', measureResidual);
+  btnPause.addEventListener('click', () => {
+    if(!video.srcObject && !video.src) return;
+    if(video.paused) video.play(); else video.pause();
+    syncPauseLabel();
+  });
+  video.addEventListener('play', syncPauseLabel);
+  video.addEventListener('pause', syncPauseLabel);
+
+  previewModeSel.addEventListener('change', applyPreviewFilter);
+  diffGainInput.addEventListener('input', () => {
+    diffGainVal.textContent = diffGainInput.value + '×';
+    applyPreviewFilter();
+  });
+  mxInput.addEventListener('input', () => setManualPose(parseFloat(mxInput.value) || 0, undefined, undefined));
+  myInput.addEventListener('input', () => setManualPose(undefined, parseFloat(myInput.value) || 0, undefined));
+  mthInput.addEventListener('input', () => setManualPose(undefined, undefined, parseFloat(mthInput.value) || 0));
+  mthSlider.addEventListener('input', () => setManualPose(undefined, undefined, parseFloat(mthSlider.value)));
+  mmgInput.addEventListener('input', () => setManualPose(undefined, undefined, undefined, parseFloat(mmgInput.value) || 1));
+  mmgSlider.addEventListener('input', () => setManualPose(undefined, undefined, undefined, parseFloat(mmgSlider.value)));
+
+  let drag = null;
+  previewCanvas.addEventListener('pointerdown', (e) => {
+    if(!manual.heldCanvas) return;
+    previewCanvas.setPointerCapture(e.pointerId);
+    drag = { px: e.clientX, py: e.clientY, mx: manual.x, my: manual.y };
+  });
+  previewCanvas.addEventListener('pointermove', (e) => {
+    if(!drag) return;
+    const rect = previewCanvas.getBoundingClientRect();
+    const scale = videoW / rect.width;
+    setManualPose(drag.mx + (e.clientX - drag.px) * scale, drag.my + (e.clientY - drag.py) * scale, undefined);
+  });
+  const endDrag = () => { drag = null; };
+  previewCanvas.addEventListener('pointerup', endDrag);
+  previewCanvas.addEventListener('pointercancel', endDrag);
+
+  document.addEventListener('keydown', (e) => {
+    if(mode !== 'manual' || e.ctrlKey || e.metaKey || e.altKey) return;
+    const tag = e.target && e.target.tagName;
+    if(tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+    if(tag === 'BUTTON' && (e.key === ' ' || e.key === 'Enter')) return;
+    const boost = e.shiftKey ? 10 : 1;
+    const step = parseFloat(nudgeStepSel.value) * boost;
+    const rstep = parseFloat(rotStepSel.value) * boost;
+    const mstep = parseFloat(mgStepSel.value) * boost;
+    let handled = true;
+    switch(e.key){
+      case 'ArrowLeft':  nudge(-step, 0, 0); break;
+      case 'ArrowRight': nudge(step, 0, 0); break;
+      case 'ArrowUp':    nudge(0, -step, 0); break;
+      case 'ArrowDown':  nudge(0, step, 0); break;
+      case '[':          nudge(0, 0, -rstep); break;
+      case ']':          nudge(0, 0, rstep); break;
+      case ',':          nudge(0, 0, 0, -mstep); break;
+      case '.':          nudge(0, 0, 0, mstep); break;
+      case ' ':          manualCapture(); break;
+      case 'Enter':      manualCommit(); break;
+      case 'Escape':     manualDiscard(); break;
+      case 'r': case 'R': measureResidual(); break;
+      case 'a': case 'A':
+        if(manual.auto) setManualPose(manual.auto.x, manual.auto.y, manual.auto.th, manual.auto.mg);
+        break;
+      default: handled = false;
+    }
+    if(handled) e.preventDefault();
+  });
+
+  applyPreviewFilter();
+
+  // ---------- input sources ----------
+  async function startCamera(){
+    errorBanner.style.display = 'none';
+    try{
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: { ideal: 'environment' } },
+        audio: false
+      });
+      video.srcObject = stream;
+      await video.play();
+      start();
+    } catch(err){
+      showError('Could not start the camera: ' + err.message);
+    }
+  }
+
+  function startFile(file){
+    errorBanner.style.display = 'none';
+    const url = URL.createObjectURL(file);
+    video.srcObject = null;
+    video.src = url;
+    video.loop = true;
+    video.play().then(start).catch(err => showError('Could not play file: ' + err.message));
+  }
+
+  btnCamera.addEventListener('click', startCamera);
+  btnFile.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', (e) => {
+    if(e.target.files && e.target.files[0]) startFile(e.target.files[0]);
+  });
+  btnReset.addEventListener('click', resetStack);
+
+  viewModeSel.addEventListener('change', () => { viewMode = parseInt(viewModeSel.value, 10); redrawDisplay(); });
+  tileFlowChk.addEventListener('change', () => { refFineS = null; prevFlow = null; currentFlow = null; flowStat = null; });
+  resampleSel.addEventListener('change', () => {});
+  sharpAmtInput.addEventListener('input', () => {
+    sharpAmt = parseFloat(sharpAmtInput.value);
+    sharpAmtVal.textContent = sharpAmt.toFixed(2);
+    redrawDisplay();
+  });
+  sharpRadiusInput.addEventListener('input', () => {
+    sharpRadius = parseFloat(sharpRadiusInput.value);
+    sharpRadiusVal.textContent = sharpRadius.toFixed(2) + ' px';
+    redrawDisplay();
+  });
+  srFactorSel.addEventListener('change', () => {
+    srFactor = parseInt(srFactorSel.value, 10);
+    srFactorVal.textContent = srFactor + '\u00d7';
+    accumW = 0; // force rebuild
+  });
+  memorySel.addEventListener('change', () => {
+    decay = parseFloat(memorySel.value);
+    memoryVal.textContent = memorySel.options[memorySel.selectedIndex].text.toLowerCase();
+  });
+  searchRadiusInput.addEventListener('input', () => {
+    searchRadius = parseInt(searchRadiusInput.value, 10);
+    searchRadiusVal.textContent = searchRadius + '%';
+  });
+  sigmaInput.addEventListener('input', () => {
+    sigma = parseFloat(sigmaInput.value);
+    sigmaVal.textContent = sigma.toFixed(2);
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if(document.hidden){ running = false; }
+    else if(video.srcObject || video.src){ running = true; scheduleNext(); }
+  });
+
+  window.addEventListener('beforeunload', () => {
+    const s = video.srcObject;
+    if(s){ s.getTracks().forEach(t => t.stop()); }
+  });
+})();
+</script>
+</body>
+</html>

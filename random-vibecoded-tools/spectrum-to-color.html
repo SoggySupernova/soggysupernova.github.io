@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spectrum to color</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+
+  :root{
+    --bg: #0b0b0f;
+    --panel: #131319;
+    --panel-2: #1a1a22;
+    --line: #2a2a34;
+    --text: #ece9e2;
+    --text-dim: #8f8d99;
+    --text-faint: #5e5c68;
+    --accent: #ff5a36;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Sans', sans-serif;
+    padding: 48px 20px 80px;
+    display:flex;
+    justify-content:center;
+  }
+  .wrap{ width:100%; max-width: 860px; }
+
+  h1{
+    font-family:'IBM Plex Mono', monospace;
+    font-weight:500;
+    font-size: 28px;
+    letter-spacing: -0.01em;
+    margin: 0 0 6px;
+  }
+  .sub{
+    color: var(--text-dim);
+    font-size: 15px;
+    line-height: 1.55;
+    max-width: 620px;
+    margin: 0 0 40px;
+  }
+  .sub a{ color: var(--text); }
+
+  h2{
+    font-family:'IBM Plex Mono', monospace;
+    font-weight: 500;
+    font-size: 13px;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    text-transform: lowercase;
+    margin: 0 0 14px;
+  }
+
+  section{ margin-bottom: 44px; }
+
+  .spectrum-bar{
+    height: 90px;
+    border-radius: 6px;
+    background: #000;
+    position: relative;
+    overflow: hidden;
+    border: 1px solid var(--line);
+  }
+  .spectrum-bar canvas{ width:100%; height:100%; display:block; }
+  .spectrum-scale{
+    display:flex; justify-content:space-between;
+    font-family:'IBM Plex Mono', monospace;
+    font-size: 11px; color: var(--text-faint);
+    margin-top: 6px;
+  }
+
+  .grid{
+    display: grid;
+    grid-template-columns: 1.1fr 0.9fr;
+    gap: 24px;
+  }
+  @media (max-width: 640px){ .grid{ grid-template-columns: 1fr; } }
+
+  textarea{
+    width: 100%;
+    height: 220px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    line-height: 1.7;
+    padding: 14px;
+    resize: vertical;
+  }
+  textarea:focus{ outline: none; border-color: #45454f; }
+
+  .hint{
+    font-size: 12px;
+    color: var(--text-faint);
+    margin-top: 8px;
+    line-height: 1.5;
+  }
+
+  button{
+    margin-top: 12px;
+    background: var(--accent);
+    color: #1a0a05;
+    border: none;
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 500;
+    font-size: 13px;
+    padding: 10px 18px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  button:hover{ filter: brightness(1.08); }
+  button:active{ transform: translateY(1px); }
+
+  .error{ color: #ff8a70; font-size: 12px; margin-top: 8px; display:none; }
+
+  .result-panel{
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .swatch{
+    width: 100%;
+    height: 130px;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+  }
+  .readout{
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    color: var(--text-dim);
+    line-height: 1.9;
+  }
+  .readout b{ color: var(--text); font-weight: 500; }
+  .readout .row{ display:flex; justify-content: space-between; }
+
+  .illum-grid{
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+  }
+  .illum-card{
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px;
+  }
+  .illum-swatch{
+    height: 56px;
+    border-radius: 4px;
+    margin-bottom: 10px;
+    border: 1px solid var(--line);
+  }
+  .illum-name{ font-size: 13px; font-weight: 500; margin-bottom: 2px; }
+  .illum-meta{ font-size: 12px; color: var(--text-dim); font-family: 'IBM Plex Mono', monospace; }
+
+  .note{
+    font-size: 13px;
+    color: var(--text-dim);
+    line-height: 1.65;
+    border-left: 2px solid var(--line);
+    padding-left: 14px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Spectrum → color</h1>
+  <p class="sub">Enter emission line wavelengths and relative intensities. This computes the color a standard human eye perceives, using the CIE 1931 color matching functions and the sRGB (D65) primaries — the same math behind spectrophotometer software.</p>
+
+  <section>
+    <h2>your spectrum</h2>
+    <div class="spectrum-bar"><canvas id="specCanvas"></canvas></div>
+    <div class="spectrum-scale"><span>380 nm</span><span>500 nm</span><span>620 nm</span><span>740 nm</span></div>
+  </section>
+
+  <section>
+    <div class="grid">
+      <div>
+        <h2>line data</h2>
+        <textarea id="lineInput" spellcheck="false"></textarea>
+        <div class="hint">One line per entry: wavelength (nm), relative intensity (0–1). Lines starting with # are ignored. Default data below is a rough approximation of the neutral bromine (Br I) spectrum shown in NIST's atomic spectra database.</div>
+        <div class="error" id="errBox"></div>
+        <button id="computeBtn">Compute color</button>
+      </div>
+
+      <div class="result-panel">
+        <h2 style="margin-bottom:0">perceived color</h2>
+        <div class="swatch" id="mainSwatch"></div>
+        <div class="readout" id="readout"></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>for reference: common light sources</h2>
+    <div class="illum-grid" id="illumGrid"></div>
+    <p class="note">CRI describes how faithfully a light source renders the color of an object it illuminates, compared with sunlight or a blackbody at the same color temperature — it isn't a property of a spectrum viewed directly, so it can't be "applied" to the bromine spectrum above. These four swatches show each source's own characteristic white-light tint and its published CRI, for context rather than transformation.</p>
+  </section>
+
+</div>
+
+<script>
+function gaussPiece(x, mu, s1, s2){
+  const s = x < mu ? s1 : s2;
+  const t = (x - mu) / s;
+  return Math.exp(-0.5 * t * t);
+}
+function cmf(lambda){
+  const xbar = 1.056*gaussPiece(lambda,599.8,37.9,31.0)
+             + 0.362*gaussPiece(lambda,442.0,16.0,26.7)
+             - 0.065*gaussPiece(lambda,501.1,20.4,26.2);
+  const ybar = 0.821*gaussPiece(lambda,568.8,46.9,40.5)
+             + 0.286*gaussPiece(lambda,530.9,16.3,31.1);
+  const zbar = 1.217*gaussPiece(lambda,437.0,11.8,36.0)
+             + 0.681*gaussPiece(lambda,459.0,26.0,13.8);
+  return [xbar, ybar, zbar];
+}
+
+function xyzToSrgb(X, Y, Z){
+  let r =  3.2406*X - 1.5372*Y - 0.4986*Z;
+  let g = -0.9689*X + 1.8758*Y + 0.0415*Z;
+  let b =  0.0557*X - 0.2040*Y + 1.0570*Z;
+  const comp = v => {
+    v = Math.max(0, v);
+    return v <= 0.0031308 ? 12.92*v : 1.055*Math.pow(v, 1/2.4) - 0.055;
+  };
+  r = comp(r); g = comp(g); b = comp(b);
+  const m = Math.max(r, g, b, 1e-6);
+  if (m > 1){ r/=m; g/=m; b/=m; }
+  return [r, g, b].map(v => Math.round(Math.max(0,Math.min(1,v)) * 255));
+}
+
+function wavelengthToSrgb(lambda){
+  const [x,y,z] = cmf(lambda);
+  const norm = Math.max(x+y+z, 1e-6);
+  return xyzToSrgb(x/norm*2.2, y/norm*2.2, z/norm*2.2);
+}
+
+function linesToXyz(lines){
+  let X=0,Y=0,Z=0;
+  for (const [lambda, intensity] of lines){
+    const [x,y,z] = cmf(lambda);
+    X += x*intensity; Y += y*intensity; Z += z*intensity;
+  }
+  return [X,Y,Z];
+}
+
+function planckSpd(lambdaNm, tempK){
+  const l = lambdaNm * 1e-9;
+  const h = 6.626e-34, c = 3e8, k = 1.381e-23;
+  const num = 2*h*c*c;
+  const denom = Math.pow(l,5) * (Math.exp((h*c)/(l*k*tempK)) - 1);
+  return num/denom;
+}
+function blackbodyXyz(tempK){
+  let X=0,Y=0,Z=0;
+  for (let l=380; l<=780; l+=5){
+    const [x,y,z] = cmf(l);
+    const p = planckSpd(l, tempK);
+    X += x*p; Y += y*p; Z += z*p;
+  }
+  const norm = Y || 1;
+  return [X/norm, 1, Z/norm];
+}
+
+const DEFAULT_LINES = `# approximate visible Br I emission lines (nm), relative intensity
+# violet / blue
+447.6, 0.35
+470.5, 0.55
+478.6, 0.70
+481.7, 0.60
+# green
+496.0, 0.45
+504.9, 0.50
+# yellow
+543.3, 0.30
+# orange / red
+614.0, 0.35
+630.0, 0.40
+645.0, 0.55
+648.1, 0.60
+654.8, 0.75
+658.0, 0.80
+667.7, 0.55
+734.0, 0.30
+744.0, 0.25`;
+
+const lineInput = document.getElementById('lineInput');
+lineInput.value = DEFAULT_LINES;
+
+function parseLines(text){
+  const lines = [];
+  for (const raw of text.split('\n')){
+    const t = raw.trim();
+    if (!t || t.startsWith('#')) continue;
+    const parts = t.split(',').map(s => s.trim());
+    if (parts.length < 2) throw new Error('Each line needs "wavelength, intensity": "' + t + '"');
+    const w = parseFloat(parts[0]);
+    const i = parseFloat(parts[1]);
+    if (!isFinite(w) || !isFinite(i)) throw new Error('Could not read numbers on: "' + t + '"');
+    if (w < 380 || w > 750) continue;
+    lines.push([w, Math.max(0, i)]);
+  }
+  if (lines.length === 0) throw new Error('No visible-range lines (380–750 nm) found.');
+  return lines;
+}
+
+function drawSpectrum(lines){
+  const canvas = document.getElementById('specCanvas');
+  const rect = canvas.parentElement.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0,0,rect.width,rect.height);
+
+  const maxI = Math.max(...lines.map(l => l[1]), 0.001);
+  const lo = 380, hi = 750;
+  for (const [w, intensity] of lines){
+    const xFrac = (w - lo) / (hi - lo);
+    if (xFrac < 0 || xFrac > 1) continue;
+    const px = xFrac * rect.width;
+    const [r,g,b] = wavelengthToSrgb(w);
+    const alpha = 0.35 + 0.65 * (intensity / maxI);
+    ctx.strokeStyle = `rgba(${r},${g},${b},${alpha})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(px, rect.height);
+    ctx.lineTo(px, rect.height * (1 - 0.9*(intensity/maxI)) );
+    ctx.stroke();
+  }
+}
+
+function render(){
+  const errBox = document.getElementById('errBox');
+  errBox.style.display = 'none';
+  let lines;
+  try{
+    lines = parseLines(lineInput.value);
+  } catch(e){
+    errBox.textContent = e.message;
+    errBox.style.display = 'block';
+    return;
+  }
+
+  drawSpectrum(lines);
+
+  const [X,Y,Z] = linesToXyz(lines);
+  const norm = Math.max(X+Y+Z, 1e-9);
+  const scale = 2.4;
+  const [r,g,b] = xyzToSrgb(X/norm*scale, Y/norm*scale, Z/norm*scale);
+  const hex = '#' + [r,g,b].map(v => v.toString(16).padStart(2,'0')).join('');
+
+  document.getElementById('mainSwatch').style.background = hex;
+  document.getElementById('readout').innerHTML = `
+    <div class="row"><span>lines used</span><b>${lines.length}</b></div>
+    <div class="row"><span>sRGB</span><b>${r}, ${g}, ${b}</b></div>
+    <div class="row"><span>hex</span><b>${hex}</b></div>
+    <div class="row"><span>CIE xy</span><b>${(X/norm).toFixed(3)}, ${(Y/norm).toFixed(3)}</b></div>
+  `;
+}
+
+document.getElementById('computeBtn').addEventListener('click', render);
+window.addEventListener('resize', () => { try{ render(); } catch(e){} });
+
+const illuminants = [
+  { name: 'Incandescent bulb', temp: 2700, cri: 100 },
+  { name: 'Warm white LED', temp: 3000, cri: 90 },
+  { name: 'Cool white fluorescent', temp: 4100, cri: 82 },
+  { name: 'Daylight (D65)', temp: 6500, cri: 100 },
+];
+const illumGrid = document.getElementById('illumGrid');
+for (const ill of illuminants){
+  const [x,y,z] = blackbodyXyz(ill.temp);
+  const [r,g,b] = xyzToSrgb(x*0.5, y*0.5, z*0.5);
+  const hex = '#' + [r,g,b].map(v => v.toString(16).padStart(2,'0')).join('');
+  const card = document.createElement('div');
+  card.className = 'illum-card';
+  card.innerHTML = `
+    <div class="illum-swatch" style="background:${hex}"></div>
+    <div class="illum-name">${ill.name}</div>
+    <div class="illum-meta">${ill.temp}K · CRI ${ill.cri}</div>
+  `;
+  illumGrid.appendChild(card);
+}
+
+render();
+</script>
+</body>
+</html>

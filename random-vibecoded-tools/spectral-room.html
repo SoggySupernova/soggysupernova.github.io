@@ -46,6 +46,7 @@ canvas.plot{width:100%;display:block;background:#0a0c10;border:1px solid var(--l
 #hud{position:absolute;left:12px;bottom:10px;font-size:12px;color:rgba(255,255,255,.7);text-shadow:0 1px 3px #000;pointer-events:none;max-width:70%}
 .tag{position:absolute;top:10px;padding:4px 10px;border-radius:999px;background:rgba(10,12,16,.7);backdrop-filter:blur(4px);border:1px solid rgba(255,255,255,.18);font-size:12px;pointer-events:none;white-space:nowrap;max-width:46%;overflow:hidden;text-overflow:ellipsis}
 #tagA{left:10px}#tagB{right:10px}
+#tagC{left:50%;transform:translateX(-50%);top:44px;max-width:60%;color:rgba(255,255,255,.85)}
 #divider{position:absolute;top:0;bottom:0;width:26px;margin-left:-13px;cursor:ew-resize;touch-action:none;z-index:2}
 #divider::before{content:"";position:absolute;left:12px;top:0;bottom:0;width:2px;background:rgba(255,255,255,.9);box-shadow:0 0 6px rgba(0,0,0,.6)}
 #divider i{position:absolute;left:1px;top:50%;margin-top:-12px;width:24px;height:24px;border-radius:50%;background:#fff;color:#111;font:700 13px/24px system-ui;text-align:center;font-style:normal;box-shadow:0 1px 6px rgba(0,0,0,.6)}
@@ -57,19 +58,28 @@ canvas.plot{width:100%;display:block;background:#0a0c10;border:1px solid var(--l
 <div id="app">
   <div id="stage">
     <canvas id="gl"></canvas>
-    <div id="tagA" class="tag"></div><div id="tagB" class="tag" hidden></div>
+    <div id="tagA" class="tag"></div><div id="tagB" class="tag" hidden></div><div id="tagC" class="tag"></div>
     <div id="divider" hidden><i>⇆</i></div>
     <div id="hud">Drag the glowing bulb to move the light · drag elsewhere to orbit · scroll to zoom · click any object to inspect its spectrum</div>
     <div id="err"></div>
   </div>
   <aside id="panel">
     <h1>Spectral Room</h1>
-    <p class="sub">Every surface is a reflectance spectrum, every light a power spectrum. Colour is computed wavelength by wavelength (380–780 nm), then passed through the CIE 1931 observer to your screen.</p>
+    <p class="sub">Every surface is a reflectance spectrum, every light a power spectrum. Colour is computed wavelength by wavelength (300–780 nm), then passed through the observer you choose (human, colour-blind, rods, or an animal) on its way to your screen.</p>
 
     <section>
       <h2>Guided demos</h2>
       <select id="demo"></select>
       <p class="note" id="demoNote"></p>
+    </section>
+
+    <section>
+      <h2>Observer: who is looking?</h2>
+      <select id="obsA"></select>
+      <div class="row" id="obsBrow" hidden><label>Compare with</label><select id="obsB" style="flex:1"></select></div>
+      <div class="row" id="rodrow" hidden><label>Rod share</label><input type="range" id="rod" min="0" max="100" value="50"><output id="rodO">50%</output></div>
+      <canvas id="obsPlot" class="plot" style="height:120px;margin-top:8px"></canvas>
+      <p class="note" id="obsInfo"></p>
     </section>
 
     <section>
@@ -81,7 +91,7 @@ canvas.plot{width:100%;display:block;background:#0a0c10;border:1px solid var(--l
       <p class="note">Drag on the chart to paint the exact emitted power at each 5 nm bin. Right-click or Shift-drag erases.</p>
       <div class="row"><label>Brush width</label><input type="range" id="brush" min="1" max="15" step="2" value="1"><output id="brushO">1 bin</output></div>
       <div class="row"><label>Brightness</label><input type="range" id="gain" min="0.1" max="3" step="0.05" value="1"><output id="gainO">1.0×</output></div>
-      <div class="row"><label>Add peak λ</label><input type="range" id="pkL" min="380" max="780" step="5" value="580"><output id="pkLo">580 nm</output></div>
+      <div class="row"><label>Add peak λ</label><input type="range" id="pkL" min="300" max="780" step="5" value="580"><output id="pkLo">580 nm</output></div>
       <div class="row"><label>Peak FWHM</label><input type="range" id="pkW" min="0" max="120" step="1" value="0"><output id="pkWo">line</output></div>
       <div class="row"><label>Peak power</label><input type="range" id="pkA" min="0.05" max="1" step="0.05" value="1"><output id="pkAo">1.00</output></div>
       <div class="btns"><button id="pkAdd">Add peak</button><button id="clr">Clear</button><button id="flat">Flat (equal energy)</button><button id="rndL">Random light</button></div>
@@ -94,10 +104,11 @@ canvas.plot{width:100%;display:block;background:#0a0c10;border:1px solid var(--l
 
     <section>
       <h2>View</h2>
-      <label class="chk"><input type="checkbox" id="cmp" checked> Split view: Light A | Light B (same position)</label>
-      <label class="chk"><input type="checkbox" id="norm" checked> Normalise luminance (auto-exposure per light)</label>
+      <label class="chk"><input type="checkbox" id="cmp" checked> Split view (drag the divider)</label>
+      <div class="row"><label>Split compares</label><select id="cmpMode" style="flex:1"><option value="light">Light A | Light B</option><option value="obs">Observer A | Observer B</option></select></div>
+      <label class="chk"><input type="checkbox" id="norm" checked> Auto-exposure (match luminance, but never let a channel clip)</label>
       <div class="row"><label>Eye adaptation</label><input type="range" id="adapt" min="0" max="100" value="0"><output id="adaptO">0%</output></div>
-      <p class="note">0% = raw light as emitted (a yellow lamp looks yellow). 100% = full Bradford von Kries adaptation to D65, like your visual system after a few minutes under that light.</p>
+      <p class="note">0% = raw light as emitted (a yellow lamp looks yellow). 100% = full von Kries adaptation: each receptor is rescaled so the light’s white looks like daylight, like an eye after a few minutes under that light.</p>
       <div class="row"><label>Quality</label><select id="qual"><option value="0.5">Fast (0.5×)</option><option value="0.75">Balanced (0.75×)</option><option value="1" selected>Sharp (1×)</option><option value="native">Native pixels</option></select></div>
       <div class="row"><label>Light position</label><span style="color:var(--mut)">X / Y / Z</span></div>
       <div class="row"><label></label><input type="range" id="lx" min="-3.7" max="3.7" step="0.05"></div>
@@ -116,7 +127,7 @@ canvas.plot{width:100%;display:block;background:#0a0c10;border:1px solid var(--l
 
     <section>
       <h2>Notes</h2>
-      <p class="note">Spectral integration uses an analytic multi-lobe fit of the CIE 1931 2° observer (Wyman et al. 2013) and the sRGB matrix; out-of-gamut colours (e.g. monochromatic light) are clipped. CCT is the nearest Planckian point in CIE 1960 uv; the Ra shown uses the CIE 13.3 procedure but with <i>synthetic</i> approximations of the eight test samples (the same eight patches are on the right wall), so treat it as indicative, not certified. The two “Twin” cubes on the shelf are metamers: identical under D65, different spectra. Surface shading is single-bounce with a flat ambient term.</p>
+      <p class="note">Spectra live on a 300–780 nm grid in 5 nm steps. Human observers use the tabulated CIE 1931 2°, CIE 1964 10° and CIE 2015 (“2012”) cone-fundamental-based colour matching functions, converted to sRGB with the standard matrix, and each observer is calibrated so CIE D65 shows as display white. Out-of-gamut colours (e.g. monochromatic light) are clipped. CCT, Duv, the CIE diagram and CRI always use the CIE 1931 2° observer; the CRI follows CIE 13.3 with the real CIE 1995 test-colour spectra TCS01–08 (the eight patches on the right wall) and matches colour-science to ±0.2. Dichromats use Stockman–Sharpe cone fundamentals and rods use CIE 1951 V′. Animal receptors are pigment templates (Govardovskii 2000) at published λmax values with rough oil-droplet filters for birds: approximate, and a 2- to 4-receptor visual space can only be shown through a 3-primary screen. Twin A / Twin B are metamers under D65 for the 2° observer. Shading is single-bounce with a flat ambient term.</p>
     </section>
   </aside>
 </div>
@@ -126,13 +137,12 @@ canvas.plot{width:100%;display:block;background:#0a0c10;border:1px solid var(--l
 /* =====================================================================
    SPECTRAL MATH
    ===================================================================== */
-const L0=380,L1=780,DL=5,N=81;
+const L0=300,L1=780,DL=5,N=97;
 const WL=[];for(let i=0;i<N;i++)WL.push(L0+i*DL);
-const gau=(l,mu,s1,s2)=>{const t=(l-mu)/(l<mu?s1:s2);return Math.exp(-.5*t*t);};
-const CMF=WL.map(l=>[
-  1.056*gau(l,599.8,37.9,31.0)+0.362*gau(l,442.0,16.0,26.7)-0.065*gau(l,501.1,20.4,26.2),
-  0.821*gau(l,568.8,46.9,40.5)+0.286*gau(l,530.9,16.3,31.1),
-  1.217*gau(l,437.0,11.8,36.0)+0.681*gau(l,459.0,26.0,13.8)]);
+/* Tabulated data on the 300-780 nm / 5 nm grid (exported from colour-science 0.4.7): CIE 1931 2deg, CIE 1964 10deg,
+   CIE 2015 (=2012) 2deg/10deg XYZ, Stockman-Sharpe 2deg LMS, CIE 1951 scotopic V', CIE D65, CIE 1995 TCS01-08, CIE D-series S0-S2. */
+const DATA={"x31":[[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.00013,4e-06,0.000606],[0.000232,7e-06,0.001086],[0.000415,1.2e-05,0.001946],[0.000742,2.2e-05,0.003486],[0.001368,3.9e-05,0.00645],[0.002236,6.4e-05,0.01055],[0.004243,0.00012,0.02005],[0.00765,0.000217,0.03621],[0.01431,0.000396,0.06785],[0.02319,0.00064,0.1102],[0.04351,0.00121,0.2074],[0.07763,0.00218,0.3713],[0.13438,0.004,0.6456],[0.21477,0.0073,1.03905],[0.2839,0.0116,1.3856],[0.3285,0.01684,1.62296],[0.34828,0.023,1.74706],[0.34806,0.0298,1.7826],[0.3362,0.038,1.77211],[0.3187,0.048,1.7441],[0.2908,0.06,1.6692],[0.2511,0.0739,1.5281],[0.19536,0.09098,1.28764],[0.1421,0.1126,1.0419],[0.09564,0.13902,0.81295],[0.05795,0.1693,0.6162],[0.03201,0.20802,0.46518],[0.0147,0.2586,0.3533],[0.0049,0.323,0.272],[0.0024,0.4073,0.2123],[0.0093,0.503,0.1582],[0.0291,0.6082,0.1117],[0.06327,0.71,0.07825],[0.1096,0.7932,0.05725],[0.1655,0.862,0.04216],[0.22575,0.91485,0.02984],[0.2904,0.954,0.0203],[0.3597,0.9803,0.0134],[0.43345,0.99495,0.00875],[0.51205,1.0,0.00575],[0.5945,0.995,0.0039],[0.6784,0.9786,0.00275],[0.7621,0.952,0.0021],[0.8425,0.9154,0.0018],[0.9163,0.87,0.00165],[0.9786,0.8163,0.0014],[1.0263,0.757,0.0011],[1.0567,0.6949,0.001],[1.0622,0.631,0.0008],[1.0456,0.5668,0.0006],[1.0026,0.503,0.00034],[0.9384,0.4412,0.00024],[0.85445,0.381,0.00019],[0.7514,0.321,0.0001],[0.6424,0.265,5e-05],[0.5419,0.217,3e-05],[0.4479,0.175,2e-05],[0.3608,0.1382,1e-05],[0.2835,0.107,0.0],[0.2187,0.0816,0.0],[0.1649,0.061,0.0],[0.1212,0.04458,0.0],[0.0874,0.032,0.0],[0.0636,0.0232,0.0],[0.04677,0.017,0.0],[0.0329,0.01192,0.0],[0.0227,0.00821,0.0],[0.01584,0.005723,0.0],[0.011359,0.004102,0.0],[0.008111,0.002929,0.0],[0.00579,0.002091,0.0],[0.004109,0.001484,0.0],[0.002899,0.001047,0.0],[0.002049,0.00074,0.0],[0.00144,0.00052,0.0],[0.001,0.000361,0.0],[0.00069,0.000249,0.0],[0.000476,0.000172,0.0],[0.000332,0.00012,0.0],[0.000235,8.5e-05,0.0],[0.000166,6e-05,0.0],[0.000117,4.2e-05,0.0],[8.3e-05,3e-05,0.0],[5.9e-05,2.1e-05,0.0],[4.2e-05,1.5e-05,0.0]],"x64":[[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,1e-06],[1e-06,0.0,4e-06],[6e-06,1e-06,2.6e-05],[3.3e-05,4e-06,0.000146],[0.00016,1.7e-05,0.000705],[0.000662,7.2e-05,0.002928],[0.002362,0.000253,0.010482],[0.007242,0.000768,0.032344],[0.01911,0.002004,0.086011],[0.0434,0.004509,0.19712],[0.084736,0.008756,0.389366],[0.140638,0.014456,0.65676],[0.204492,0.021391,0.972542],[0.264737,0.029497,1.2825],[0.314679,0.038676,1.55348],[0.357719,0.049602,1.7985],[0.383734,0.062077,1.96728],[0.386726,0.074704,2.0273],[0.370702,0.089456,1.9948],[0.342957,0.106256,1.9007],[0.302273,0.128201,1.74537],[0.254085,0.152761,1.5549],[0.195618,0.18519,1.31756],[0.132349,0.21994,1.0302],[0.080507,0.253589,0.772125],[0.041072,0.297665,0.57006],[0.016172,0.339133,0.415254],[0.005132,0.395379,0.302356],[0.003816,0.460777,0.218502],[0.015444,0.53136,0.159249],[0.037465,0.606741,0.112044],[0.071358,0.68566,0.082248],[0.117749,0.761757,0.060709],[0.172953,0.82333,0.04305],[0.236491,0.875211,0.030451],[0.304213,0.92381,0.020584],[0.376772,0.961988,0.013676],[0.451584,0.9822,0.007918],[0.529826,0.991761,0.003988],[0.616053,0.99911,0.001091],[0.705224,0.99734,0.0],[0.793832,0.98238,0.0],[0.878655,0.955552,0.0],[0.951162,0.915175,0.0],[1.01416,0.868934,0.0],[1.0743,0.825623,0.0],[1.11852,0.777405,0.0],[1.1343,0.720353,0.0],[1.12399,0.658341,0.0],[1.0891,0.593878,0.0],[1.03048,0.527963,0.0],[0.95074,0.461834,0.0],[0.856297,0.398057,0.0],[0.75493,0.339554,0.0],[0.647467,0.283493,0.0],[0.53511,0.228254,0.0],[0.431567,0.179828,0.0],[0.34369,0.140211,0.0],[0.268329,0.107633,0.0],[0.2043,0.081187,0.0],[0.152568,0.060281,0.0],[0.11221,0.044096,0.0],[0.081261,0.0318,0.0],[0.05793,0.022602,0.0],[0.040851,0.015905,0.0],[0.028623,0.01113,0.0],[0.019941,0.007749,0.0],[0.013842,0.005375,0.0],[0.009577,0.003718,0.0],[0.006605,0.002565,0.0],[0.004553,0.001768,0.0],[0.003145,0.001222,0.0],[0.002175,0.000846,0.0],[0.001506,0.000586,0.0],[0.001045,0.000407,0.0],[0.000727,0.000284,0.0],[0.000508,0.000199,0.0],[0.000356,0.00014,0.0],[0.000251,9.8e-05,0.0],[0.000178,7e-05,0.0],[0.000126,5e-05,0.0],[9e-05,3.6e-05,0.0],[6.5e-05,2.5e-05,0.0],[4.6e-05,1.8e-05,0.0],[3.3e-05,1.3e-05,0.0]],"x12_2":[[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.00377,0.000415,0.018473],[0.009383,0.00106,0.046098],[0.022143,0.002452,0.109609],[0.04743,0.004972,0.236925],[0.089538,0.00908,0.450837],[0.144621,0.014294,0.737882],[0.203573,0.020274,1.051821],[0.248852,0.026121,1.305008],[0.291825,0.03319,1.552826],[0.322709,0.041579,1.74828],[0.348255,0.050337,1.917479],[0.341848,0.057434,1.918437],[0.322464,0.064724,1.848545],[0.282665,0.072383,1.664439],[0.248525,0.085148,1.522157],[0.221978,0.106014,1.42844],[0.18069,0.129896,1.25061],[0.129192,0.153507,0.999179],[0.081829,0.178805,0.755238],[0.046009,0.206483,0.561731],[0.02084,0.237916,0.409931],[0.007098,0.285068,0.310594],[0.002462,0.348354,0.237675],[0.003649,0.42776,0.172002],[0.01557,0.520497,0.11768],[0.043152,0.620626,0.082835],[0.079629,0.718089,0.056504],[0.126847,0.794645,0.037519],[0.181803,0.85758,0.024382],[0.240502,0.907135,0.015662],[0.309812,0.954468,0.009846],[0.380424,0.981411,0.006131],[0.449421,0.989023,0.00379],[0.528023,0.999461,0.002327],[0.613378,0.996774,0.001432],[0.701677,0.990255,0.000882],[0.796775,0.973261,0.000545],[0.885338,0.942457,0.000339],[0.963839,0.896361,0.000212],[1.051011,0.85872,0.000134],[1.109767,0.811587,8.5e-05],[1.14362,0.754478,5.5e-05],[1.151033,0.691855,3.5e-05],[1.134757,0.627007,2.3e-05],[1.083928,0.558375,1.6e-05],[1.007344,0.489595,1e-05],[0.914288,0.42299,0.0],[0.813556,0.360924,0.0],[0.692472,0.298086,0.0],[0.575541,0.24169,0.0],[0.473122,0.194312,0.0],[0.384499,0.15474,0.0],[0.299737,0.119312,0.0],[0.227779,0.089796,0.0],[0.170791,0.06671,0.0],[0.126381,0.048997,0.0],[0.092246,0.0356,0.0],[0.0664,0.025542,0.0],[0.047106,0.018079,0.0],[0.032921,0.012616,0.0],[0.022623,0.008661,0.0],[0.015754,0.006028,0.0],[0.010968,0.004196,0.0],[0.007609,0.002911,0.0],[0.005215,0.001996,0.0],[0.003569,0.001367,0.0],[0.002465,0.000945,0.0],[0.001704,0.000654,0.0],[0.001186,0.000456,0.0],[0.000827,0.000318,0.0],[0.000576,0.000222,0.0],[0.000406,0.000157,0.0],[0.000286,0.00011,0.0],[0.000202,7.8e-05,0.0],[0.000144,5.6e-05,0.0],[0.000102,4e-05,0.0],[7.3e-05,2.9e-05,0.0],[5.3e-05,2.1e-05,0.0],[3.8e-05,1.5e-05,0.0]],"x12_10":[[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0],[0.002952,0.000408,0.013188],[0.007641,0.001078,0.034246],[0.018793,0.00259,0.085083],[0.04205,0.005474,0.192706],[0.082773,0.010413,0.383282],[0.139513,0.01713,0.656819],[0.207765,0.025761,0.993344],[0.268899,0.035296,1.308674],[0.32818,0.046982,1.62494],[0.369308,0.060474,1.867751],[0.402619,0.074683,2.075946],[0.404253,0.088205,2.132574],[0.393214,0.103903,2.128264],[0.348221,0.119539,1.946651],[0.301311,0.141459,1.76844],[0.253422,0.170137,1.582342],[0.191418,0.199986,1.310576],[0.128317,0.231243,1.010952],[0.075931,0.268227,0.751639],[0.038368,0.310944,0.554962],[0.014007,0.355402,0.397811],[0.003447,0.414823,0.290582],[0.005652,0.478048,0.207816],[0.01562,0.549134,0.139464],[0.037782,0.62483,0.088524],[0.075389,0.701229,0.058245],[0.120151,0.77882,0.037849],[0.175683,0.837636,0.024314],[0.238025,0.882955,0.015395],[0.304699,0.923386,0.009753],[0.384186,0.966532,0.006083],[0.463311,0.988689,0.003769],[0.537417,0.99075,0.002324],[0.623089,0.999778,0.001427],[0.712385,0.99443,0.000878],[0.801628,0.984813,0.000541],[0.893341,0.964054,0.000334],[0.97213,0.92865,0.000208],[1.034327,0.877536,0.00013],[1.106886,0.837084,8.2e-05],[1.147304,0.786995,5.2e-05],[1.160477,0.727231,3.3e-05],[1.148163,0.662904,2.2e-05],[1.113846,0.597038,1.4e-05],[1.048485,0.52823,1e-05],[0.961711,0.460131,6e-06],[0.862958,0.395076,0.0],[0.76035,0.335179,0.0],[0.641398,0.275181,0.0],[0.529098,0.221956,0.0],[0.432313,0.177688,0.0],[0.349636,0.14102,0.0],[0.27149,0.1084,0.0],[0.205651,0.081377,0.0],[0.153816,0.06034,0.0],[0.113607,0.044254,0.0],[0.08281,0.032119,0.0],[0.059548,0.023026,0.0],[0.042215,0.016288,0.0],[0.029488,0.011361,0.0],[0.020256,0.007797,0.0],[0.014102,0.005425,0.0],[0.009816,0.003776,0.0],[0.006809,0.002619,0.0],[0.004666,0.001796,0.0],[0.003194,0.00123,0.0],[0.002206,0.00085,0.0],[0.001525,0.000588,0.0],[0.001061,0.00041,0.0],[0.00074,0.000286,0.0],[0.000515,0.000199,0.0],[0.000363,0.000141,0.0],[0.000256,9.9e-05,0.0],[0.000181,7e-05,0.0],[0.000129,5e-05,0.0],[9.2e-05,3.6e-05,0.0],[6.6e-05,2.6e-05,0.0],[4.7e-05,1.8e-05,0.0],[3.4e-05,1.3e-05,0.0]],"lms_l":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.000415,0.001052,0.002408,0.004833,0.008721,0.013384,0.018448,0.022932,0.028188,0.034105,0.040256,0.044938,0.049864,0.055342,0.064716,0.080689,0.099476,0.118802,0.140145,0.163952,0.191556,0.232926,0.288959,0.359716,0.443683,0.536494,0.628561,0.70472,0.77063,0.825711,0.881011,0.919067,0.940198,0.965733,0.981445,0.994486,0.999993,0.99231,0.969429,0.955602,0.927673,0.885969,0.833982,0.775103,0.705713,0.630773,0.554224,0.479941,0.400711,0.327864,0.265784,0.213284,0.165141,0.124749,0.093008,0.06851,0.049866,0.035823,0.025379,0.01772,0.01217,0.008472,0.005897,0.004091,0.002804,0.001921,0.001327,0.000918,0.000639,0.000446,0.000311,0.000219,0.000155,0.00011,7.8e-05,5.6e-05,4e-05,2.9e-05,2.1e-05],"lms_m":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.000368,0.000959,0.00227,0.0047,0.008794,0.014528,0.021665,0.029571,0.039457,0.05182,0.064778,0.075881,0.087052,0.098193,0.116272,0.144541,0.175893,0.205398,0.235754,0.268063,0.30363,0.357061,0.427764,0.515587,0.61552,0.719154,0.81661,0.88555,0.935687,0.968858,0.995217,0.997193,0.977193,0.956583,0.91775,0.873205,0.813509,0.740291,0.653274,0.572597,0.492599,0.411246,0.334429,0.264872,0.205273,0.156243,0.116641,0.085587,0.062112,0.044488,0.031428,0.021804,0.015448,0.010712,0.007303,0.004972,0.003437,0.002376,0.001637,0.001121,0.000761,0.000525,0.000365,0.000253,0.000174,0.000121,8.4e-05,5.9e-05,4.2e-05,2.9e-05,2.1e-05,1.5e-05,1.1e-05,8e-06,6e-06,4e-06,3e-06,2e-06,2e-06],"lms_s":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.009547,0.023825,0.05665,0.122451,0.233008,0.381363,0.543618,0.674474,0.802555,0.903573,0.99102,0.991515,0.955393,0.86024,0.786704,0.738268,0.646359,0.516411,0.390333,0.290322,0.211867,0.160526,0.122839,0.088896,0.060821,0.042812,0.029203,0.019391,0.012601,0.008095,0.005089,0.003169,0.001959,0.001203,0.00074,0.000456,0.000282,0.000175,0.000109,6.9e-05,4.4e-05,2.8e-05,1.8e-05,1.2e-05,8e-06,5e-06,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"scot":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.000589,0.001108,0.002209,0.00453,0.00929,0.01852,0.03484,0.0604,0.0966,0.1436,0.1998,0.2625,0.3281,0.3931,0.455,0.513,0.567,0.62,0.676,0.734,0.793,0.851,0.904,0.949,0.982,0.998,0.997,0.975,0.935,0.88,0.811,0.733,0.65,0.564,0.481,0.402,0.3288,0.2639,0.2076,0.1602,0.1212,0.0899,0.0655,0.0469,0.03315,0.02312,0.01593,0.01088,0.00737,0.00497,0.003335,0.002235,0.001497,0.001005,0.000677,0.000459,0.000313,0.000215,0.000148,0.000103,7.2e-05,5e-05,3.5e-05,2.5e-05,1.8e-05,1.3e-05,9e-06,7e-06,5e-06,3e-06,3e-06,2e-06,1e-06,1e-06,1e-06,1e-06,0.0,0.0,0.0,0.0,0.0],"d65":[0.000341,0.016643,0.032945,0.117652,0.20236,0.286447,0.370535,0.385011,0.399488,0.424302,0.449117,0.45775,0.466383,0.493637,0.520891,0.510323,0.499755,0.523118,0.546482,0.687015,0.827549,0.871204,0.91486,0.924589,0.934318,0.90057,0.866823,0.957736,1.04865,1.10936,1.17008,1.1741,1.17812,1.16336,1.14861,1.15392,1.15923,1.12367,1.08811,1.09082,1.09354,1.08578,1.07802,1.06296,1.0479,1.06239,1.07689,1.06047,1.04405,1.04225,1.04046,1.02023,1.0,0.981671,0.963342,0.960611,0.95788,0.922368,0.886856,0.893459,0.900062,0.898026,0.895991,0.886489,0.876987,0.854936,0.832886,0.834939,0.836992,0.81863,0.800268,0.801207,0.802146,0.812462,0.822778,0.80281,0.782842,0.740027,0.697213,0.706652,0.716091,0.72979,0.74349,0.679765,0.61604,0.657448,0.698856,0.724863,0.75087,0.693398,0.635927,0.550054,0.464182,0.566118,0.668054,0.650941,0.633828],"tcs":[[0.116,0.116,0.116,0.116,0.116,0.116,0.116,0.116,0.116,0.116,0.116,0.116,0.116,0.136,0.159,0.19,0.219,0.239,0.252,0.256,0.256,0.254,0.252,0.248,0.244,0.24,0.237,0.232,0.23,0.226,0.225,0.222,0.22,0.218,0.216,0.214,0.214,0.214,0.216,0.218,0.223,0.225,0.226,0.226,0.225,0.225,0.227,0.23,0.236,0.245,0.253,0.262,0.272,0.283,0.298,0.318,0.341,0.367,0.39,0.409,0.424,0.435,0.442,0.448,0.45,0.451,0.451,0.451,0.451,0.451,0.45,0.45,0.451,0.451,0.453,0.454,0.455,0.457,0.458,0.46,0.462,0.463,0.464,0.465,0.466,0.466,0.466,0.466,0.467,0.467,0.467,0.467,0.467,0.467,0.467,0.467,0.467],[0.053,0.053,0.053,0.053,0.053,0.053,0.053,0.053,0.053,0.053,0.053,0.053,0.053,0.055,0.059,0.064,0.07,0.079,0.089,0.101,0.111,0.116,0.118,0.12,0.121,0.122,0.122,0.122,0.123,0.124,0.127,0.128,0.131,0.134,0.138,0.143,0.15,0.159,0.174,0.19,0.207,0.225,0.242,0.253,0.26,0.264,0.267,0.269,0.272,0.276,0.282,0.289,0.299,0.309,0.322,0.329,0.335,0.339,0.341,0.341,0.342,0.342,0.342,0.341,0.341,0.339,0.339,0.338,0.338,0.337,0.336,0.335,0.334,0.332,0.332,0.331,0.331,0.33,0.329,0.328,0.328,0.327,0.326,0.325,0.324,0.324,0.324,0.323,0.322,0.321,0.32,0.318,0.316,0.315,0.315,0.314,0.314],[0.058,0.058,0.058,0.058,0.058,0.058,0.058,0.058,0.058,0.058,0.058,0.058,0.058,0.059,0.061,0.063,0.065,0.068,0.07,0.072,0.073,0.073,0.074,0.074,0.074,0.073,0.073,0.073,0.073,0.073,0.074,0.075,0.077,0.08,0.085,0.094,0.109,0.126,0.148,0.172,0.198,0.221,0.241,0.26,0.278,0.302,0.339,0.37,0.392,0.399,0.4,0.393,0.38,0.365,0.349,0.332,0.315,0.299,0.285,0.272,0.264,0.257,0.252,0.247,0.241,0.235,0.229,0.224,0.22,0.217,0.216,0.216,0.219,0.224,0.23,0.238,0.251,0.269,0.288,0.312,0.34,0.366,0.39,0.412,0.431,0.447,0.46,0.472,0.481,0.488,0.493,0.497,0.5,0.502,0.505,0.51,0.516],[0.057,0.057,0.057,0.057,0.057,0.057,0.057,0.057,0.057,0.057,0.057,0.057,0.057,0.059,0.062,0.067,0.074,0.083,0.093,0.105,0.116,0.121,0.124,0.126,0.128,0.131,0.135,0.139,0.144,0.151,0.161,0.172,0.186,0.205,0.229,0.254,0.281,0.308,0.332,0.352,0.37,0.383,0.39,0.394,0.395,0.392,0.385,0.377,0.367,0.354,0.341,0.327,0.312,0.296,0.28,0.263,0.247,0.229,0.214,0.198,0.185,0.175,0.169,0.164,0.16,0.156,0.154,0.152,0.151,0.149,0.148,0.148,0.148,0.149,0.151,0.154,0.158,0.162,0.165,0.168,0.17,0.171,0.17,0.168,0.166,0.164,0.164,0.165,0.168,0.172,0.177,0.181,0.185,0.189,0.192,0.194,0.197],[0.143,0.143,0.143,0.143,0.143,0.143,0.143,0.143,0.143,0.143,0.143,0.143,0.143,0.187,0.233,0.269,0.295,0.306,0.31,0.312,0.313,0.315,0.319,0.322,0.326,0.33,0.334,0.339,0.346,0.352,0.36,0.369,0.381,0.394,0.403,0.41,0.415,0.418,0.419,0.417,0.413,0.409,0.403,0.396,0.389,0.381,0.372,0.363,0.353,0.342,0.331,0.32,0.308,0.296,0.284,0.271,0.26,0.247,0.232,0.22,0.21,0.2,0.194,0.189,0.185,0.183,0.18,0.177,0.176,0.175,0.175,0.175,0.175,0.177,0.18,0.183,0.186,0.189,0.192,0.195,0.199,0.2,0.199,0.198,0.196,0.195,0.195,0.196,0.197,0.2,0.203,0.205,0.208,0.212,0.215,0.217,0.219],[0.079,0.079,0.079,0.079,0.079,0.079,0.079,0.079,0.079,0.079,0.079,0.079,0.079,0.081,0.089,0.113,0.151,0.203,0.265,0.339,0.41,0.464,0.492,0.508,0.517,0.524,0.531,0.538,0.544,0.551,0.556,0.556,0.554,0.549,0.541,0.531,0.519,0.504,0.488,0.469,0.45,0.431,0.414,0.395,0.377,0.358,0.341,0.325,0.309,0.293,0.279,0.265,0.253,0.241,0.234,0.227,0.225,0.222,0.221,0.22,0.22,0.22,0.22,0.22,0.223,0.227,0.233,0.239,0.244,0.251,0.258,0.263,0.268,0.273,0.278,0.281,0.283,0.286,0.291,0.296,0.302,0.313,0.325,0.338,0.351,0.364,0.376,0.389,0.401,0.413,0.425,0.436,0.447,0.458,0.469,0.477,0.485],[0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.177,0.218,0.293,0.378,0.459,0.524,0.546,0.551,0.555,0.559,0.56,0.561,0.558,0.556,0.551,0.544,0.535,0.522,0.506,0.488,0.469,0.448,0.429,0.408,0.385,0.363,0.341,0.324,0.311,0.301,0.291,0.283,0.273,0.265,0.26,0.257,0.257,0.259,0.26,0.26,0.258,0.256,0.254,0.254,0.259,0.27,0.284,0.302,0.324,0.344,0.362,0.377,0.389,0.4,0.41,0.42,0.429,0.438,0.445,0.452,0.457,0.462,0.466,0.468,0.47,0.473,0.477,0.483,0.489,0.496,0.503,0.511,0.518,0.525,0.532,0.539,0.546,0.553,0.559,0.565,0.57,0.575,0.578,0.581],[0.075,0.075,0.075,0.075,0.075,0.075,0.075,0.075,0.075,0.075,0.075,0.075,0.075,0.078,0.084,0.09,0.104,0.129,0.17,0.24,0.319,0.416,0.462,0.482,0.49,0.488,0.482,0.473,0.462,0.45,0.439,0.426,0.413,0.397,0.382,0.366,0.352,0.337,0.325,0.31,0.299,0.289,0.283,0.276,0.27,0.262,0.256,0.251,0.25,0.251,0.254,0.258,0.264,0.269,0.272,0.274,0.278,0.284,0.295,0.316,0.348,0.384,0.434,0.482,0.528,0.568,0.604,0.629,0.648,0.663,0.676,0.685,0.693,0.7,0.705,0.709,0.712,0.715,0.717,0.719,0.721,0.72,0.719,0.722,0.725,0.727,0.729,0.73,0.73,0.73,0.73,0.73,0.73,0.73,0.73,0.73,0.73]],"s0":[0.04,3.02,6.0,17.8,29.6,42.45,55.3,56.3,57.3,59.55,61.8,61.65,61.5,65.15,68.8,66.1,63.4,64.6,65.8,80.3,94.8,99.8,104.8,105.35,105.9,101.35,96.8,105.35,113.9,119.75,125.6,125.55,125.5,123.4,121.3,121.3,121.3,117.4,113.5,113.3,113.1,111.95,110.8,108.65,106.5,107.65,108.8,107.05,105.3,104.85,104.4,102.2,100.0,98.0,96.0,95.55,95.1,92.1,89.1,89.8,90.5,90.4,90.3,89.35,88.4,86.2,84.0,84.55,85.1,83.5,81.9,82.25,82.6,83.75,84.9,83.1,81.3,76.6,71.9,73.1,74.3,75.35,76.4,69.85,63.3,67.5,71.7,74.35,77.0,71.1,65.2,56.45,47.7,58.15,68.6,66.8,65.0],"s1":[0.02,2.26,4.5,13.45,22.4,32.2,42.0,41.3,40.6,41.1,41.6,39.8,38.0,40.2,42.4,40.45,38.5,36.75,35.0,39.2,43.4,44.85,46.3,45.1,43.9,40.5,37.1,36.9,36.7,36.3,35.9,34.25,32.6,30.25,27.9,26.1,24.3,22.2,20.1,18.15,16.2,14.7,13.2,10.9,8.6,7.35,6.1,5.15,4.2,3.05,1.9,0.95,0.0,-0.8,-1.6,-2.55,-3.5,-3.5,-3.5,-4.65,-5.8,-6.5,-7.2,-7.9,-8.6,-9.05,-9.5,-10.2,-10.9,-10.8,-10.7,-11.35,-12.0,-13.0,-14.0,-13.8,-13.6,-12.8,-12.0,-12.65,-13.3,-13.1,-12.9,-11.75,-10.6,-11.1,-11.6,-11.9,-12.2,-11.2,-10.2,-9.0,-7.8,-9.5,-11.2,-10.8,-10.4],"s2":[0.0,1.0,2.0,3.0,4.0,6.25,8.5,8.15,7.8,7.25,6.7,6.0,5.3,5.7,6.1,4.55,3.0,2.1,1.2,0.05,-1.1,-0.8,-0.5,-0.6,-0.7,-0.95,-1.2,-1.9,-2.6,-2.75,-2.9,-2.85,-2.8,-2.7,-2.6,-2.6,-2.6,-2.2,-1.8,-1.65,-1.5,-1.4,-1.3,-1.25,-1.2,-1.1,-1.0,-0.75,-0.5,-0.4,-0.3,-0.15,0.0,0.1,0.2,0.35,0.5,1.3,2.1,2.65,3.2,3.65,4.1,4.4,4.7,4.9,5.1,5.9,6.7,7.0,7.3,7.95,8.6,9.2,9.8,10.0,10.2,9.25,8.3,8.95,9.6,9.05,8.5,7.75,7.0,7.3,7.6,7.8,8.0,7.35,6.7,5.95,5.2,6.3,7.4,7.1,6.8]};
+const CMF=DATA.x31;
 let FLATY=0;for(const c of CMF)FLATY+=c[1]*DL;
 const M_XYZ_RGB=[[3.2404542,-1.5371385,-0.4985314],[-0.9692660,1.8760108,0.0415560],[0.0556434,-0.2040259,1.0572252]];
 const MB=[[.8951,.2664,-.1614],[-.7502,1.7135,.0367],[.0389,-.0685,1.0296]];
@@ -144,7 +154,7 @@ function inv3(m){const[a,b,c]=m[0],[d,e,f]=m[1],[g,h,i]=m[2];
   const A=e*i-f*h,B=-(d*i-f*g),C=d*h-e*g;const det=a*A+b*B+c*C;
   return[[A/det,-(b*i-c*h)/det,(b*f-c*e)/det],[B/det,(a*i-c*g)/det,-(a*f-c*d)/det],[C/det,-(a*h-b*g)/det,(a*e-b*d)/det]];}
 const MBi=inv3(MB);
-function xyzSum(S,R){let X=0,Y=0,Z=0;for(let i=0;i<N;i++){const p=S[i]*(R?R[i]:1)*DL;X+=p*CMF[i][0];Y+=p*CMF[i][1];Z+=p*CMF[i][2];}return[X,Y,Z];}
+function xyzSum(S,R,C){C=C||CMF;let X=0,Y=0,Z=0;for(let i=0;i<N;i++){const p=S[i]*(R?R[i]:1)*DL;X+=p*C[i][0];Y+=p*C[i][1];Z+=p*C[i][2];}return[X,Y,Z];}
 function chroma(S){const[X,Y,Z]=xyzSum(S);const s=(X+Y+Z)||1e-12,d=(X+15*Y+3*Z)||1e-12;return{X,Y,Z,x:X/s,y:Y/s,u:4*X/d,v:6*Y/d};}
 function adaptMatrix(W,D){
   if(D<=0)return[[1,0,0],[0,1,0],[0,0,1]];
@@ -153,8 +163,7 @@ function adaptMatrix(W,D){
   return mulMM(MBi,mulMM([[sc[0],0,0],[0,sc[1],0],[0,0,sc[2]]],MB));
 }
 /* ---- illuminant data ---- */
-const D65T=[49.9755,54.6482,82.7549,91.486,93.4318,86.6823,104.865,117.008,117.812,114.861,115.923,108.811,109.354,107.802,104.79,107.689,104.405,104.046,100,96.3342,95.788,88.6856,90.0062,89.5991,87.6987,83.2886,83.6992,80.0268,80.2146,82.2778,78.2842,69.7213,71.6091,74.349,61.604,69.8856,75.087,63.5927,46.4182,66.8054,63.3828];
-const D65S=Float64Array.from(WL,l=>{const x=(l-380)/10,i=Math.min(39,Math.floor(x)),f=x-i;return(D65T[i]*(1-f)+D65T[i+1]*f)/100;});
+const D65S=Float64Array.from(DATA.d65);
 function planckS(T){return normMax(Float64Array.from(WL,l=>{const x=1.4388e7/(l*T);return Math.pow(l,-5)/(Math.exp(x)-1);}));}
 function normMax(S){let m=0;for(const v of S)m=Math.max(m,v);if(m>0)for(let i=0;i<N;i++)S[i]/=m;return S;}
 function impulse(pairs){const S=new Float64Array(N);for(const[l,a]of pairs){const i=Math.round((l-L0)/DL);if(i>=0&&i<N)S[i]+=a;}return S;}
@@ -169,6 +178,18 @@ function mixLines(l1,l2,s,tgt){
   const K=1/((1-sm)*a[1]+sm*b[1]);
   const S=new Float64Array(N);S[i1]=(1-sm)/S1*K;S[i2]=sm/S2*K;return normMax(S);
 }
+function balanced(prim,tx,ty){ // gaussian primaries [centre,sigma], weights solved so the mix has chromaticity (tx,ty)
+  const P=prim.map(([c,s])=>addGauss(new Float64Array(N),c,s,1)),X=P.map(S=>xyzSum(S));
+  const M=[[X[0][0],X[1][0],X[2][0]],[X[0][1],X[1][1],X[2][1]],[X[0][2],X[1][2],X[2][2]]];
+  const w=mulMV(inv3(M),[tx/ty,1,(1-tx-ty)/ty]).map(v=>Math.max(v,0)),S=new Float64Array(N);
+  P.forEach((p,i)=>{for(let j=0;j<N;j++)S[j]+=w[i]*p[j];});return normMax(S);
+}
+function daylightS(T){ // CIE D-series illuminant for CCT T (4000-25000 K)
+  const x=T<=7000?-4.607e9/T**3+2.9678e6/T**2+.09911e3/T+.244063:-2.0064e9/T**3+1.9018e6/T**2+.24748e3/T+.23704;
+  const y=-3*x*x+2.87*x-.275,d=.0241+.2562*x-.7341*y,m1=(-1.3515-1.7703*x+5.9114*y)/d,m2=(.03-31.4424*x+30.0717*y)/d;
+  return normMax(Float64Array.from(WL,(l,i)=>DATA.s0[i]+m1*DATA.s1[i]+m2*DATA.s2[i]));
+}
+const RGBP=[[630,8.5],[525,14.5],[465,9]];
 const PRESETS=[
  {id:'d65',group:'Natural & thermal',name:'Daylight (CIE D65)',make:()=>Float64Array.from(D65S)},
  {id:'incand',group:'Natural & thermal',name:'Incandescent bulb (2856 K)',make:()=>normMax(planckS(2856))},
@@ -176,8 +197,9 @@ const PRESETS=[
  {id:'ledw',group:'Lamps',name:'Warm-white LED (blue pump + phosphor)',make:()=>{const S=new Float64Array(N);addGauss(S,452,8,.25);addGauss(S,590,62,1);addGauss(S,645,35,.55);return normMax(S);}},
  {id:'ledc',group:'Lamps',name:'Cool-white LED (blue pump + phosphor)',make:()=>{const S=new Float64Array(N);addGauss(S,452,8,1);addGauss(S,555,62,.62);addGauss(S,620,40,.2);return normMax(S);}},
  {id:'cfl',group:'Lamps',name:'Fluorescent (tri-phosphor, spiky)',make:()=>{const S=impulse([[405,.2],[435,.5],[545,1],[580,.3]]);addGauss(S,487,6,.12);addGauss(S,611,4,.85);addGauss(S,545,3,.4);for(let i=0;i<N;i++)S[i]+=.03;return normMax(S);}},
- {id:'rgbled',group:'Lamps',name:'RGB LED (three narrow bands)',make:()=>{const S=new Float64Array(N);addGauss(S,630,8,1);addGauss(S,527,16,.9);addGauss(S,462,10,.8);return normMax(S);}},
- {id:'hg',group:'Lamps',name:'Mercury vapour (line spectrum)',make:()=>normMax(impulse([[405,.25],[435,.6],[545,1],[580,.35]]))},
+ {id:'rgbled',group:'Lamps',name:'RGB LED, balanced to daylight white (630/525/465 nm)',make:()=>balanced(RGBP,.3127,.3290)},
+ {id:'rgbledw',group:'Lamps',name:'RGB LED, balanced to warm white (2700 K)',make:()=>{const c=chroma(planckS(2700));return balanced(RGBP,c.x,c.y);}},
+ {id:'hg',group:'Lamps',name:'Mercury vapour (line spectrum, incl. UV lines)',make:()=>normMax(impulse([[313,.3],[334,.05],[365,.5],[405,.25],[435,.6],[545,1],[580,.35]]))},
  {id:'yellow',group:'Metamerism & colour mixing',name:'Pure yellow (580 nm line)',make:()=>impulse([[580,1]])},
  {id:'rg',group:'Metamerism & colour mixing',name:'Red + green lines that mimic that yellow',make:()=>mixLines(540,630,0,580)},
  {id:'magenta',group:'Metamerism & colour mixing',name:'Magenta (blue + red lines, no green)',make:()=>mixLines(450,640,.4)},
@@ -186,6 +208,11 @@ const PRESETS=[
  {id:'red',group:'Single wavelengths',name:'Red 630 nm',make:()=>impulse([[630,1]])},
  {id:'green',group:'Single wavelengths',name:'Green 530 nm',make:()=>impulse([[530,1]])},
  {id:'blue',group:'Single wavelengths',name:'Blue 460 nm',make:()=>impulse([[460,1]])},
+ {id:'violet',group:'Single wavelengths',name:'Violet 405 nm',make:()=>impulse([[405,1]])},
+ {id:'deepred',group:'Single wavelengths',name:'Deep red 700 nm',make:()=>impulse([[700,1]])},
+ {id:'uva',group:'Ultraviolet',name:'Blacklight (UV-A, 365 nm, slight violet leak)',make:()=>{const S=new Float64Array(N);addGauss(S,365,6,1);addGauss(S,405,10,.03);return normMax(S);}},
+ {id:'d65nouv',group:'Ultraviolet',name:'Daylight with UV removed (below 400 nm)',make:()=>Float64Array.from(D65S,(v,i)=>WL[i]<400?0:v)},
+ {id:'d65uv',group:'Ultraviolet',name:'Daylight (CIE D65, includes UV)',make:()=>Float64Array.from(D65S)},
 ];
 /* ---- CCT / Duv ---- */
 const PL=[];for(let k=0;k<700;k++){const T=1000*Math.pow(25,k/699);const c=chroma(planckS(T));PL.push({T,u:c.u,v:c.v,x:c.x,y:c.y});}
@@ -199,13 +226,12 @@ const Tm=(base,...terms)=>({base,terms});
 const gB=(c,w,a)=>['g',c,w,a],hiB=(c,w,a)=>['hi',c,w,a],loB=(c,w,a)=>['lo',c,w,a];
 function evalSpec(sp){return Float64Array.from(WL,l=>{let v=sp.base;for(const[k,c,w,a]of sp.terms){
   if(k==='g')v+=a*Math.exp(-.5*((l-c)/w)**2);else if(k==='hi')v+=a/(1+Math.exp(-(l-c)/w));else v+=a/(1+Math.exp((l-c)/w));}
-  return clamp(v,0.015,0.97);});}
-const TCS=[
- ['light greyish red',Tm(.15,hiB(590,25,.42))],['dark greyish yellow',Tm(.12,hiB(555,25,.33))],
- ['strong yellow-green',Tm(.10,gB(555,40,.36))],['moderate yellowish green',Tm(.10,gB(535,45,.26))],
- ['light bluish green',Tm(.14,gB(500,45,.30))],['light blue',Tm(.20,loB(510,30,.30))],
- ['light violet',Tm(.22,loB(480,25,.18),hiB(640,25,.28))],['light reddish purple',Tm(.22,loB(500,25,.14),hiB(610,20,.30))]];
-const TCSR=TCS.map(t=>evalSpec(t[1]));
+  v=clamp(v,0.015,0.97);
+  if(sp.uv!==undefined&&l<380){const q=clamp((380-l)/30,0,1),s=q*q*(3-2*q);v=v*(1-s)+sp.uv*s;} // UV reflectance override, fades in below 380 nm
+  return v;});}
+const UVs=(s,u)=>{s.uv=u;return s;};
+const TCSN=['light greyish red','dark greyish yellow','strong yellow-green','moderate yellowish green','light bluish green','light blue','light violet','light reddish purple'];
+const TCSR=DATA.tcs.map(a=>Float64Array.from(a)); // real CIE 1995 test-colour spectra (TCS01-08)
 function metamerize(RA){
   const w=[0,1,2].map(k=>WL.map((l,i)=>D65S[i]*CMF[i][k]*DL));
   const R0=WL.map((l,i)=>RA[i]+0.15*Math.sin(2*Math.PI*(l-380)/75));
@@ -219,7 +245,7 @@ function metamerize(RA){
 function criOf(S){
   const info=cctOf(S);if(!info||Math.abs(info.duv)>0.05)return null;
   const T=info.T;
-  const Sr=T<5000?planckS(T):(T<7500?D65S:planckS(T));
+  const Sr=T<5000?planckS(T):daylightS(T);
   const ct=chroma(S),cr=chroma(Sr);
   const kt=100/ct.Y,kr=100/cr.Y;
   const cd=(u,v)=>[(4-u-10*v)/v,(1.708*v+0.404-1.481*u)/v];
@@ -242,7 +268,7 @@ function criOf(S){
 /* ---- materials ---- */
 const MATS=[
  {k:'FLOOR',name:'Oak floorboards',pat:6,sc:5,gl:.12,A:Tm(.10,hiB(560,35,.30)),B:Tm(.05,hiB(580,40,.17))},
- {k:'CEIL',name:'White ceiling',pat:0,sc:1,gl:0,A:Tm(.86)},
+ {k:'CEIL',name:'White ceiling (UV-absorbing paint)',pat:0,sc:1,gl:0,A:UVs(Tm(.86),.1)},
  {k:'WALL',name:'Cream wall paint',pat:0,sc:1,gl:0,A:Tm(.55,hiB(540,40,.25))},
  {k:'PAPER',name:'Striped wallpaper',pat:1,sc:2.6,gl:.05,A:Tm(.28,gB(500,55,.35)),B:Tm(.62,hiB(540,40,.2)),rand:1},
  {k:'RUG',name:'Checkered rug',pat:3,sc:1.7,gl:0,A:Tm(.04,hiB(600,18,.55)),B:Tm(.5,hiB(550,40,.3)),rand:1},
@@ -268,7 +294,8 @@ const MATS=[
  {k:'H7',name:'Shelf chip: magenta',pat:0,sc:1,gl:.3,A:Tm(.04,gB(440,30,.3),hiB(625,18,.65))},
  {k:'TWA',name:'Twin A (smooth pigment)',pat:0,sc:1,gl:.2,A:Tm(.20,gB(520,70,.30))},
  {k:'TWB',name:'Twin B (metamer of A under D65)',pat:0,sc:1,gl:.2,A:Tm(.2),special:'twin'},
- ...TCS.map((t,i)=>({k:'T'+i,name:'Test sample '+(i+1)+': '+t[0],pat:0,sc:1,gl:0,A:t[1]})),
+ ...TCSN.map((n,i)=>({k:'T'+i,name:'Test sample '+(i+1)+': '+n,pat:0,sc:1,gl:0,A:Tm(.5),arr:TCSR[i]})),
+ {k:'FLOWER',name:'UV-marked flower panel (same yellow; UV bullseye)',pat:10,sc:2,gl:.1,A:UVs(Tm(.04,hiB(528,14,.85)),.8),B:UVs(Tm(.04,hiB(528,14,.85)),.03)},
  {k:'LAMP',name:'Light bulb',pat:0,sc:1,gl:0,A:Tm(1)},
 ];
 const ONES=new Float64Array(N).fill(1);
@@ -286,11 +313,95 @@ function randomSpecB(){return Math.random()<.5?Tm(rnd(.55,.8),gB(rnd(430,640),rn
 const clone=o=>JSON.parse(JSON.stringify(o));
 MATS.forEach(m=>{m.A0=clone(m.A);m.B0=m.B?clone(m.B):null;});
 function buildR(){
-  MATS.forEach(m=>{const a=evalSpec(m.A);m.R=[a,m.B?evalSpec(m.B):a];});
+  MATS.forEach(m=>{const a=m.arr?Float64Array.from(m.arr):evalSpec(m.A);m.R=[a,m.B?evalSpec(m.B):a];});
   const ta=MATS.findIndex(m=>m.k==='TWA'),tb=MATS.findIndex(m=>m.k==='TWB');
   const rb=metamerize(MATS[ta].R[0]);MATS[tb].R=[rb,rb];
 }
 buildR();
+/* =====================================================================
+   OBSERVERS: how each viewer turns a spectrum into a display colour
+   ===================================================================== */
+const CAP=1.5; // auto-exposure: brightest channel of the white card never exceeds this
+function bradford(from,to){const a=mulMV(MB,from),b=mulMV(MB,to);return mulMM(MBi,mulMM([[b[0]/a[0],0,0],[0,b[1]/a[1],0],[0,0,b[2]/a[2]]],MB));}
+function mulMat(M,u){return M.map(row=>row.reduce((s,v,j)=>s+v*u[j],0));}
+/* Govardovskii et al. 2000 A1 visual-pigment template (alpha + beta band), as an energy sensitivity (x lambda) */
+function opsin(lmax,filt){
+  const a=Float64Array.from(WL,(l,i)=>{const x=lmax/l,A=.8795+.0459*Math.exp(-((lmax-300)**2)/11940);
+    const al=1/(Math.exp(69.7*(A-x))+Math.exp(28*(.922-x))+Math.exp(-14.9*(1.104-x))+.674);
+    const bm=189+.315*lmax,bw=-40.5+.195*lmax;
+    return (al+.26*Math.exp(-(((l-bm)/bw)**2)))*l*(filt?1/(1+Math.exp(-(l-filt)/6)):1);});
+  const m=Math.max(...a);return a.map(v=>v/m);
+}
+const sensOf=a=>{const f=Float64Array.from(a),m=Math.max(...f);return f.map(v=>v/m);};
+const SC={S:'#6f8cff',M:'#4fcf7a',L:'#ff7a6b',UV:'#c58cff',R:'#bbbbbb'};
+const DICH=[[0,1],[0,1],[1,0]]; // [short,long] -> display (L,L,S): yellow-blue plane
+const OBS=[
+ {id:'cie31',group:'Human – colorimetric standard observers',name:'CIE 1931 2° standard observer',kind:'xyz',cmf:DATA.x31,
+  info:'The 2° observer behind sRGB, CIE xy, CCT and CRI. Models vision of a small, foveal patch.'},
+ {id:'cie64',group:'Human – colorimetric standard observers',name:'CIE 1964 10° standard observer',kind:'xyz',cmf:DATA.x64,
+  info:'Wider 10° field: less macular-pigment absorption and a different blue response, so colour matches differ slightly. Best for large patches. Narrow-band and spiky lights show the biggest differences.'},
+ {id:'cie12_2',group:'Human – colorimetric standard observers',name:'CIE 2012 2° (cone-fundamental based)',kind:'xyz',cmf:DATA.x12_2,
+  info:'Modern physiologically based 2° observer derived from Stockman–Sharpe cone fundamentals; fixes known errors in the 1931 blue region.'},
+ {id:'cie12_10',group:'Human – colorimetric standard observers',name:'CIE 2012 10° (cone-fundamental based)',kind:'xyz',cmf:DATA.x12_10,
+  info:'Modern physiologically based 10° observer.'},
+ {id:'protan',group:'Human – colour vision deficiency',name:'Protanope (no L cones)',kind:'rec',rec:[{n:'S',c:SC.S,sens:sensOf(DATA.lms_s)},{n:'M',c:SC.M,sens:sensOf(DATA.lms_m)}],map:DICH,
+  info:'Two cone types (S and M; Stockman–Sharpe fundamentals). Shown on a blue–yellow plane: the long channel becomes yellow, S becomes blue. Reds and greens collapse together.'},
+ {id:'deutan',group:'Human – colour vision deficiency',name:'Deuteranope (no M cones)',kind:'rec',rec:[{n:'S',c:SC.S,sens:sensOf(DATA.lms_s)},{n:'L',c:SC.L,sens:sensOf(DATA.lms_l)}],map:DICH,
+  info:'Two cone types (S and L). Shown on a blue–yellow plane. The most common dichromacy; red–green confusions.'},
+ {id:'tritan',group:'Human – colour vision deficiency',name:'Tritanope (no S cones)',kind:'rec',rec:[{n:'M',c:SC.M,sens:sensOf(DATA.lms_m)},{n:'L',c:SC.L,sens:sensOf(DATA.lms_l)}],map:[[0,1],[1,0],[1,0]],
+  info:'Two cone types (M and L). Shown on a red–cyan plane. Blue and green are confused; yellow and pink too.'},
+ {id:'rods',group:'Human – night vision',name:'Rods only (scotopic)',kind:'rec',rec:[{n:'rod',c:SC.R,sens:sensOf(DATA.scot)}],map:[[1],[1],[1]],
+  info:'One receptor type (CIE 1951 V′, peak ~507 nm): no colour at all, only brightness. Red is nearly black, blue-green is bright (Purkinje shift). Try a 630 nm or 700 nm red light.'},
+ {id:'meso',group:'Human – night vision',name:'Dusk: cones + rods blended (mesopic)',kind:'meso',
+  info:'Linear blend of the CIE 1931 colour image and the rod image, set by “Rod share”. Colours fade and reds darken as the share rises; a crude model of the cone-to-rod transition.'},
+ {id:'dog',group:'Animals (approximate)',name:'Dog (dichromat)',kind:'rec',rec:[{n:'S 429',c:SC.S,sens:opsin(429)},{n:'L 555',c:SC.L,sens:opsin(555)}],map:DICH,
+  info:'Cones at about 429 and 555 nm (Kasparson et al. 2013). Opsin template curves; no UV vision modelled. Shown on a blue–yellow plane, so red and green look yellowish-brown.'},
+ {id:'cat',group:'Animals (approximate)',name:'Cat (dichromat)',kind:'rec',rec:[{n:'S 450',c:SC.S,sens:opsin(450)},{n:'L 553',c:SC.L,sens:opsin(553)}],map:DICH,
+  info:'Cones at about 450 and 553 nm (literature values vary, 440–450 nm for the short cone). Daytime cone vision only; a cat’s rod-rich night vision is not modelled.'},
+ {id:'bird',group:'Animals (approximate)',name:'Songbird (UV-sensitive tetrachromat)',kind:'rec',
+  rec:[{n:'UV 372',c:SC.UV,sens:opsin(372)},{n:'S 450',c:SC.S,sens:opsin(450,420)},{n:'M 504',c:SC.M,sens:opsin(504,505)},{n:'L 563',c:SC.L,sens:opsin(563,560)}],
+  map:[[.4,0,0,.6],[0,0,1,0],[.4,.6,0,0]],
+  info:'Four cones (λmax ~372/450/504/563 nm, mid-range values for blue tit-type birds) with simple oil-droplet cut-off filters. A bird’s 4-D colour space cannot be shown on a 3-primary screen, so UV is drawn as purple. Look at the UV flower panel.'},
+ {id:'bee',group:'Animals (approximate)',name:'Honeybee (UV–blue–green trichromat)',kind:'rec',rec:[{n:'UV 344',c:SC.UV,sens:opsin(344)},{n:'B 436',c:SC.S,sens:opsin(436)},{n:'G 556',c:SC.M,sens:opsin(556)}],map:[[0,0,1],[0,1,0],[1,0,0]],
+  info:'Receptors at about 344/436/556 nm. False colour: bee-green → red, bee-blue → green, bee-UV → blue (the usual convention for bee-vision images), so hues here are labels, not what a bee “sees”.'},
+];
+const OBSBY={};OBS.forEach(o=>OBSBY[o.id]=o);
+(function prepObs(){
+  const YD=xyzSum(D65S)[1];
+  for(const o of OBS){
+    if(o.kind==='xyz'){const w=xyzSum(D65S,null,o.cmf);o.B=bradford([w[0]/w[1],1,w[2]/w[1]],D65W);} // D65 always lands on the display white
+    else if(o.kind==='rec')o.c=o.rec.map(r=>{let q=0;for(let i=0;i<N;i++)q+=D65S[i]*r.sens[i]*DL;return YD/q;}); // every receptor reads 1.0 for D65 white
+  }
+})();
+/* spectrum S, exposure k, adaptation d (0..1) -> function(reflectance)->linear display RGB */
+function rgbFn(o,S,k,d,rod){
+  if(o.kind==='meso'){const a=rgbFn(OBSBY.cie31,S,k,d),b=rgbFn(OBSBY.rods,S,k,d);return R=>{const A=a(R),B=b(R);return A.map((v,i)=>(1-rod)*v+rod*B[i]);};}
+  if(o.kind==='xyz'){
+    const W=mulMV(o.B,xyzSum(S,null,o.cmf)).map(v=>v*k),T=mulMM(M_XYZ_RGB,mulMM(adaptMatrix(W,d),o.B));
+    return R=>mulMV(T,xyzSum(S,R,o.cmf).map(v=>v*k)).map(v=>Math.max(0,v));
+  }
+  const q=R=>o.rec.map((r,j)=>{let s=0;for(let i=0;i<N;i++)s+=S[i]*(R?R[i]:1)*r.sens[i];return s*DL*o.c[j]*k;});
+  const w=q(null),mx=Math.max(...w),g=w.map(v=>d*Math.min(1/Math.max(v,.03*mx,1e-12),30)+(1-d));
+  return R=>mulMat(o.map,q(R).map((v,j)=>v*g[j])).map(v=>Math.max(0,v));
+}
+/* Auto-exposure: match photopic luminance (CIE Y), but never let the brightest display channel of the white card exceed CAP.
+   Deep red/violet lights have almost no luminance, so a pure Y normalisation multiplies them by a huge factor and clips. */
+function exposureK(o,S,cfg){
+  let any=false;for(const v of S)if(v>0){any=true;break;}
+  if(!any)return 0;
+  if(!cfg.norm)return cfg.gain/FLATY;
+  let k=1/Math.max(xyzSum(S,null,o.kind==='xyz'?o.cmf:CMF)[1],1e-9);
+  const wr=rgbFn(o,S,k,0,cfg.rod)(ONES),m=Math.max(wr[0],wr[1],wr[2]);
+  if(m>CAP)k*=CAP/m;
+  return k*cfg.gain;
+}
+/* linear display RGB of a unit monochromatic stimulus at WL[i] (used to colour the spectrum chart) */
+function monoRGB(o,i,rod){
+  if(o.kind==='meso'){const a=monoRGB(OBSBY.cie31,i),b=monoRGB(OBSBY.rods,i);return a.map((v,j)=>(1-rod)*v+rod*b[j]);}
+  if(o.kind==='xyz')return mulMV(M_XYZ_RGB,mulMV(o.B,o.cmf[i])).map(v=>Math.max(0,v));
+  return mulMat(o.map,o.rec.map((r,j)=>r.sens[i]*o.c[j])).map(v=>Math.max(0,v));
+}
+
 /*__END_MATH__*/
 
 /* =====================================================================
@@ -298,7 +409,9 @@ buildR();
    ===================================================================== */
 const $=id=>document.getElementById(id);
 const stage=$('stage'),cv=$('gl');
-const state={cmp:true,norm:true,adapt:0,q:'1',active:0};
+const state={cmp:true,norm:true,adapt:0,q:'1',active:0,obs:['cie31','cie31'],cmpMode:'light',rod:.5};
+const sideLight=s=>state.cmpMode==='obs'?lights[0]:lights[s];
+const sideObs=s=>state.cmpMode==='obs'?state.obs[s]:state.obs[0];
 const lights=[{S:null,id:'d65',gain:1,T:3000,label:''},{S:null,id:'incand',gain:1,T:3000,label:''}];
 let lightPos=[0.5,2.55,0.1];
 const cam={yaw:0,pitch:0.12,dist:4.8,tx:0,ty:1.25,tz:-1};
@@ -320,12 +433,9 @@ function rebuildColors(){
   colorsDirty=false;
   const w=MATS.length*2,data=new Float32Array(w*3*4);
   for(let side=0;side<2;side++){
-    const S=lights[side].S;
-    const Ys=xyzSum(S)[1];
-    let k=state.norm?(Ys>1e-9?1/Ys:0):1/FLATY;k*=lights[side].gain;
-    const W=xyzSum(S).map(v=>v*k);
-    const Mad=adaptMatrix(W,state.adapt/100);
-    const toRGB=R=>{const x=xyzSum(S,R).map(v=>v*k);return mulMV(M_XYZ_RGB,mulMV(Mad,x)).map(v=>Math.max(0,v));};
+    const S=sideLight(side).S,ob=OBSBY[sideObs(side)];
+    const k=exposureK(ob,S,{norm:state.norm,gain:sideLight(side).gain,rod:state.rod});
+    const toRGB=rgbFn(ob,S,k,state.adapt/100,state.rod);
     whites[side]=toRGB(ONES);
     MATS.forEach((m,i)=>{
       const a=toRGB(m.R[0]),b=toRGB(m.R[1]);colorsLin[side][i]=[a,b];
@@ -395,6 +505,7 @@ vec2 mapS(vec3 p){
   vec3 fp=p-vec3(-2.0,2.1,-3.94);
   res=opU(res,vec2(max(sdBox(fp,vec3(0.75,0.55,0.05)),-sdBox(fp,vec3(0.65,0.45,0.2))),float(M_TABLE)));
   res=opU(res,vec2(sdBox(p-vec3(-2.0,2.1,-3.935),vec3(0.65,0.45,0.02)),float(M_PAINT)));
+  res=opU(res,vec2(sdCyl((p-vec3(0.0,2.55,-3.975)).xzy,0.5,0.02),float(M_FLOWER)));
   res=opU(res,vec2(length(p-vec3(-2.6,1.07,-2.3))-0.17,float(M_APPLE)));
   res=opU(res,vec2(sdRCyl(p-vec3(-2.2,1.05,-2.45),0.13,0.15,0.01),float(M_CUP)));
   vec3 cq=p-vec3(-1.75,1.05,-2.2);cq.xz=rot(0.45)*cq.xz;
@@ -450,6 +561,7 @@ vec2 pattern(int pat,vec3 p,vec3 n,float s,float pw){
   else if(pat==7){float r=length(p.xy-vec2(-2.0,2.1));t=sq(r*s,aw);}
   else if(pat==8){t=smoothstep(0.3,0.7,0.5+0.5*sin((p.z+p.y)*s*3.0+6.0*fbm(vec3(p.x*0.8,p.y*3.0,p.z*3.0))));}
   else if(pat==9){t=smoothstep(0.50,0.56,fbm(p*s));}
+  else if(pat==10){float r=length(p.xy-vec2(0.0,2.55));t=sq(r*s,aw);}
   return vec2(t,mul);
 }
 vec3 tonemap(vec3 c){c=max(c,vec3(0.0));
@@ -572,9 +684,13 @@ function pickAt(sx,sy){
 
 /* ---------- light spectrum editor ---------- */
 const specCv=$('spec'),sctx=specCv.getContext('2d');
-const barCol=WL.map((l,i)=>{const c=CMF[i],rgb=mulMV(M_XYZ_RGB,c).map(v=>Math.max(0,v)),m=Math.max(...rgb,1e-9);
-  const dim=l<420?(l-380)/40:(l>680?(780-l)/100:1);const k=.35+.65*clamp(dim,0,1);
-  return'rgb('+rgb.map(v=>Math.round(255*Math.pow(v/m,1/2.2)*k)).join(',')+')';});
+let barCol=[];
+function updateBarCols(){ // colour of each wavelength bin as the selected observer would see a pure line there
+  const ob=OBSBY[state.obs[0]],raw=WL.map((l,i)=>monoRGB(ob,i,state.rod));
+  const lum=raw.map(c=>.2126*c[0]+.7152*c[1]+.0722*c[2]),ml=Math.max(...lum,1e-12);
+  barCol=raw.map((c,i)=>{const m=Math.max(c[0],c[1],c[2]);if(m<ml*1e-5)return null;
+    const f=.3+.7*clamp(Math.pow(lum[i]/ml,.35),0,1);return'rgb('+c.map(v=>Math.round(255*Math.pow(v/m,1/2.2)*f)).join(',')+')';});
+}
 function fitCanvas(c){const dpr=window.devicePixelRatio||1,w=c.clientWidth,h=c.clientHeight;
   if(c.width!==Math.round(w*dpr)||c.height!==Math.round(h*dpr)){c.width=Math.round(w*dpr);c.height=Math.round(h*dpr);}
   const x=c.getContext('2d');x.setTransform(dpr,0,0,dpr,0,0);return[w,h,x];}
@@ -585,15 +701,17 @@ function drawSpec(){
   c.strokeStyle='rgba(255,255,255,.07)';c.lineWidth=1;
   for(let q=0;q<=4;q++){const y=y1-(y1-y0)*q/4;c.beginPath();c.moveTo(x0,y);c.lineTo(x1,y);c.stroke();}
   const S=lights[state.active].S;
-  for(let i=0;i<N;i++){const hgt=S[i]*(y1-y0);c.fillStyle=barCol[i];c.fillRect(x0+i*bw,y1-hgt,Math.max(1,bw-.6),hgt);}
-  if(state.cmp){const O=lights[1-state.active].S;c.strokeStyle='rgba(255,255,255,.55)';c.setLineDash([3,3]);c.lineWidth=1.3;c.beginPath();
+  for(let i=0;i<N;i++){const hgt=S[i]*(y1-y0);c.fillStyle=barCol[i]||'#3a3f4b';c.fillRect(x0+i*bw,y1-hgt,Math.max(1,bw-.6),hgt);}
+  if(state.cmp&&state.cmpMode==='light'){const O=lights[1-state.active].S;c.strokeStyle='rgba(255,255,255,.55)';c.setLineDash([3,3]);c.lineWidth=1.3;c.beginPath();
     for(let i=0;i<N;i++){const x=x0+(i+.5)*bw,y=y1-O[i]*(y1-y0);i?c.lineTo(x,y):c.moveTo(x,y);}c.stroke();c.setLineDash([]);}
-  const g=c.createLinearGradient(x0,0,x1,0);for(let i=0;i<N;i+=4)g.addColorStop(i/(N-1),barCol[i]);
+  const g=c.createLinearGradient(x0,0,x1,0);for(let i=0;i<N;i+=4)g.addColorStop(i/(N-1),barCol[i]||'#2a2e38');
   c.fillStyle=g;c.fillRect(x0,y1+3,x1-x0,6);
   c.fillStyle='#8d95a6';c.font='10px system-ui';c.textAlign='center';
-  for(let l=400;l<=750;l+=50){const x=x0+((l-L0)/DL+.5)*bw;c.fillText(l,x,H-4);}
+  for(let l=300;l<=750;l+=50){const x=x0+((l-L0)/DL+.5)*bw;c.fillText(l,x,H-4);}
+  {const xv=x0+((380-L0)/DL)*bw;c.save();c.strokeStyle='rgba(255,255,255,.3)';c.setLineDash([2,3]);c.beginPath();c.moveTo(xv,y0);c.lineTo(xv,y1);c.stroke();c.restore();
+   c.fillStyle='#8d95a6';c.textAlign='center';c.fillText('UV',(x0+xv)/2,y0+22);c.textAlign='left';}
   c.textAlign='left';c.fillText('nm',x1-14,y0+8);
-  if(state.cmp){c.fillStyle='rgba(255,255,255,.6)';c.fillText('dashed = other light',x0+4,y0+10);}
+  if(state.cmp&&state.cmpMode==='light'){c.fillStyle='rgba(255,255,255,.6)';c.fillText('dashed = other light',x0+4,y0+10);}
 }
 let paint=null;
 function specVal(e){const r=specCv.getBoundingClientRect(),W=r.width,H=r.height,x0=SP.x0,x1=W-8,y0=SP.top,y1=H-SP.pad,bw=(x1-x0)/N;
@@ -627,7 +745,7 @@ function drawCIE(){
   c.strokeStyle='rgba(255,170,90,.7)';c.lineWidth=1;c.beginPath();PL.forEach((q,i)=>{if(q.T<1500||q.T>20000)return;c.lineTo(px(q.x),py(q.y));});c.stroke();
   c.setLineDash([3,3]);c.strokeStyle='rgba(120,160,255,.6)';c.beginPath();
   [[.64,.33],[.30,.60],[.15,.06]].forEach((q,i)=>i?c.lineTo(px(q[0]),py(q[1])):c.moveTo(px(q[0]),py(q[1])));c.closePath();c.stroke();c.setLineDash([]);
-  for(let s=0;s<2;s++){if(s===1&&!state.cmp)continue;const ch=chroma(lights[s].S);if(!(ch.Y>1e-12))continue;
+  for(let s=0;s<2;s++){if(s===1&&(!state.cmp||state.cmpMode==='obs'))continue;const ch=chroma(lights[s].S);if(!(ch.Y>1e-12))continue;
     const x=px(ch.x),y=py(ch.y);c.fillStyle=s===state.active?'#fff':'rgba(255,255,255,.55)';c.strokeStyle='#000';c.lineWidth=1;
     c.beginPath();if(s===0)c.arc(x,y,5,0,7);else c.rect(x-4.5,y-4.5,9,9);c.fill();c.stroke();
     c.fillStyle='#fff';c.font='bold 10px system-ui';c.fillText(s?'B':'A',x+7,y-5);}
@@ -643,12 +761,14 @@ function updateInfo(){
   const cr=criOf(S);
   if(cr){h+='<div>Colour rendering (Ra, approx.)</div><div id="ra">'+Math.round(cr.Ra)+(cr.valid?'':'<span style="font-size:13px;color:#e8b86b"> *</span>')+'</div>';
     if(!cr.valid)h+='<div style="font-size:11px">* Duv &gt; 0.0054: CIE says CRI isn’t meaningful for this light.</div>';
-    $('chips').innerHTML=cr.Ri.map((r,i)=>'<span class="chip" title="'+TCS[i][0]+'">R'+(i+1)+' <b>'+Math.round(r)+'</b></span>').join('');}
+    $('chips').innerHTML=cr.Ri.map((r,i)=>'<span class="chip" title="'+TCSN[i]+'">R'+(i+1)+' <b>'+Math.round(r)+'</b></span>').join('');}
   else{h+='<div>Ra: <b>n/a</b> (not a white-ish light)</div>';$('chips').innerHTML='';}
   $('info').innerHTML=h;drawCIE();
 }
 function updateTags(){
-  $('tagA').textContent='A · '+lights[0].label;$('tagB').textContent='B · '+lights[1].label;
+  const om=state.cmp&&state.cmpMode==='obs',oN=id=>OBSBY[id].name;
+  $('tagA').textContent='A · '+(om?oN(state.obs[0]):lights[0].label);$('tagB').textContent='B · '+(om?oN(state.obs[1]):lights[1].label);
+  $('tagC').textContent=om?('Light: '+lights[0].label):('Observer: '+oN(state.obs[0]));
   $('tagB').hidden=!state.cmp;$('divider').hidden=!state.cmp;$('divider').style.left=(split*100)+'%';
   $('tagA').style.maxWidth=state.cmp?'46%':'80%';
 }
@@ -663,6 +783,7 @@ function syncLightUI(){
   $('preset').value=L.id;const p=PRESETS.find(q=>q.id===L.id);$('bbrow').hidden=!(p&&p.hasT);
   $('bbT').value=L.T;$('bbTo').textContent=L.T+' K';$('gain').value=L.gain;$('gainO').textContent=L.gain.toFixed(2)+'×';
   $('tabA').classList.toggle('on',state.active===0);$('tabB').classList.toggle('on',state.active===1);
+  $('tabB').disabled=state.cmp&&state.cmpMode==='obs';$('tabB').style.opacity=$('tabB').disabled?.4:1;
 }
 
 /* ---------- inspector ---------- */
@@ -674,7 +795,7 @@ function drawInsp(){
   const x0=8,x1=W-8,y0=8,y1=H-22,bw=(x1-x0)/N;
   const X=i=>x0+(i+.5)*bw,Y=v=>y1-v*(y1-y0);
   c.strokeStyle='rgba(255,255,255,.07)';for(let q=0;q<=4;q++){const y=y1-(y1-y0)*q/4;c.beginPath();c.moveTo(x0,y);c.lineTo(x1,y);c.stroke();}
-  const side=state.cmp?state.active:0,S=lights[side].S;let mx=0;for(const v of S)mx=Math.max(mx,v);mx=mx||1;
+  const side=state.cmp?state.active:0,S=sideLight(side).S,sl=x=>(state.cmpMode==='obs'?'observer ':'light ')+'AB'[x];let mx=0;for(const v of S)mx=Math.max(mx,v);mx=mx||1;
   const cols=colorsLin[side][sel]||[[0,0,0],[0,0,0]];
   const hasB=m.B||m.special;
   c.beginPath();c.moveTo(X(0),Y(0));for(let i=0;i<N;i++)c.lineTo(X(i),Y(S[i]/mx*m.R[0][i]));c.lineTo(X(N-1),Y(0));c.closePath();
@@ -682,13 +803,13 @@ function drawInsp(){
   c.strokeStyle='rgba(255,255,255,.35)';c.setLineDash([2,3]);c.beginPath();for(let i=0;i<N;i++){const x=X(i),y=Y(S[i]/mx);i?c.lineTo(x,y):c.moveTo(x,y);}c.stroke();c.setLineDash([]);
   c.lineWidth=2;c.strokeStyle='#fff';c.beginPath();for(let i=0;i<N;i++){const x=X(i),y=Y(m.R[0][i]);i?c.lineTo(x,y):c.moveTo(x,y);}c.stroke();
   if(m.B){c.strokeStyle='#ffd27a';c.setLineDash([5,3]);c.lineWidth=1.6;c.beginPath();for(let i=0;i<N;i++){const x=X(i),y=Y(m.R[1][i]);i?c.lineTo(x,y):c.moveTo(x,y);}c.stroke();c.setLineDash([]);}
-  c.fillStyle='#8d95a6';c.font='10px system-ui';c.textAlign='center';for(let l=400;l<=750;l+=50)c.fillText(l+'',X((l-L0)/DL),H-6);
+  c.fillStyle='#8d95a6';c.font='10px system-ui';c.textAlign='center';for(let l=300;l<=750;l+=50)c.fillText(l+'',X((l-L0)/DL),H-6);
   c.textAlign='left';c.fillText('white: reflectance · dotted: light · fill: reflected',x0+4,y0+8);
   let s='<b style="color:#e7eaf0">'+m.name+'</b>';
   const avg=a=>(a.reduce((p,q)=>p+q,0)/N*100).toFixed(0);
   s+=' — mean reflectance '+avg(m.R[0])+'%'+(m.B?' (A) / '+avg(m.R[1])+'% (B, dashed)':'');
-  s+='<br>Seen under light '+'AB'[side]+': <span class="sw" style="background:'+css(cols[0])+'"></span>'+(m.B?' <span class="sw" style="background:'+css(cols[1])+'"></span>':'');
-  if(state.cmp){const o=colorsLin[1-side][sel];if(o)s+=' &nbsp;under '+'AB'[1-side]+': <span class="sw" style="background:'+css(o[0])+'"></span>'+(m.B?' <span class="sw" style="background:'+css(o[1])+'"></span>':'');}
+  s+='<br>Shown for '+sl(side)+': <span class="sw" style="background:'+css(cols[0])+'"></span>'+(m.B?' <span class="sw" style="background:'+css(cols[1])+'"></span>':'');
+  if(state.cmp){const o=colorsLin[1-side][sel];if(o)s+=' &nbsp;for '+sl(1-side)+': <span class="sw" style="background:'+css(o[0])+'"></span>'+(m.B?' <span class="sw" style="background:'+css(o[1])+'"></span>':'');}
   $('inspInfo').innerHTML=s;
 }
 function setSel(i){if(i<0||i>=MATS.length||MATS[i].k==='LAMP')return;sel=i;$('matSel').value=i;drawInsp();}
@@ -751,8 +872,8 @@ $('flat').addEventListener('click',()=>{lights[state.active].S.fill(1);markCusto
 $('rndL').addEventListener('click',()=>{const S=lights[state.active].S;S.fill(0);const n=2+Math.floor(Math.random()*3);
   for(let k=0;k<n;k++)addPeak(S,rnd(410,690),Math.random()<.35?0:rnd(5,60),rnd(.35,1));markCustom();lightChanged(false);});
 $('tabA').addEventListener('click',()=>{state.active=0;syncLightUI();lightChanged(false);});
-$('tabB').addEventListener('click',()=>{state.active=1;if(!state.cmp){state.cmp=true;$('cmp').checked=true;}syncLightUI();lightChanged(false);});
-$('cmp').addEventListener('change',e=>{state.cmp=e.target.checked;if(!state.cmp&&state.active===1){state.active=0;syncLightUI();}lightChanged(false);});
+$('tabB').addEventListener('click',()=>{if(state.cmpMode==='obs')return;state.active=1;if(!state.cmp){state.cmp=true;$('cmp').checked=true;}syncLightUI();lightChanged(false);});
+$('cmp').addEventListener('change',e=>{state.cmp=e.target.checked;if(!state.cmp&&state.active===1){state.active=0;syncLightUI();}syncObsUI();lightChanged(false);});
 $('norm').addEventListener('change',e=>{state.norm=e.target.checked;lightChanged(false);});
 $('adapt').addEventListener('input',e=>{state.adapt=+e.target.value;$('adaptO').textContent=state.adapt+'%';lightChanged(true);});
 $('qual').addEventListener('change',e=>{state.q=e.target.value;requestRender(false);});
@@ -762,32 +883,84 @@ $('rndM').addEventListener('click',()=>{MATS.forEach(m=>{if(!m.rand)return;m.A=r
 $('resetM').addEventListener('click',()=>{MATS.forEach(m=>{m.A=clone(m.A0);m.B=m.B0?clone(m.B0):undefined;});buildR();lightChanged(false);});
 $('matSel').addEventListener('change',e=>setSel(+e.target.value));
 
+/* ---------- observer UI ---------- */
+const obsCv=$('obsPlot');
+function shownObs(){return state.cmp&&state.cmpMode==='obs'?[state.obs[0],state.obs[1]]:[state.obs[0]];}
+function syncObsUI(){
+  const two=state.cmp&&state.cmpMode==='obs';
+  $('obsBrow').hidden=!two;$('rodrow').hidden=!shownObs().some(id=>OBSBY[id].kind==='meso');
+  $('cmpMode').value=state.cmpMode;$('obsA').value=state.obs[0];$('obsB').value=state.obs[1];
+  $('obsInfo').innerHTML=shownObs().map((id,i)=>(two?'<b>'+'AB'[i]+':</b> ':'')+OBSBY[id].info).join('<br>');
+}
+function drawObsPlot(){
+  const[W,H,c]=fitCanvas(obsCv);c.clearRect(0,0,W,H);
+  const x0=8,x1=W-8,y0=8,y1=H-20,bw=(x1-x0)/N,X=i=>x0+(i+.5)*bw;
+  c.strokeStyle='rgba(255,255,255,.07)';for(let q=0;q<=2;q++){const y=y1-(y1-y0)*q/2;c.beginPath();c.moveTo(x0,y);c.lineTo(x1,y);c.stroke();}
+  const xv=x0+((380-L0)/DL)*bw;c.fillStyle='rgba(180,140,255,.09)';c.fillRect(x0,y0,xv-x0,y1-y0);
+  c.fillStyle='#8d95a6';c.font='10px system-ui';c.textAlign='center';
+  for(let l=300;l<=750;l+=50)c.fillText(l,X((l-L0)/DL),H-6);
+  c.textAlign='left';c.fillText('UV',x0+3,y0+10);
+  const ids=shownObs();
+  ids.forEach((id,oi)=>{
+    const o=OBSBY[id];let curves=[];
+    if(o.kind==='xyz'||o.kind==='meso'){const cm=(o.kind==='meso'?OBSBY.cie31:o).cmf,mx=Math.max(...cm.map(v=>Math.max(...v)));
+      curves=[0,1,2].map(k=>({c:['#ff7a6b','#4fcf7a','#6f8cff'][k],v:cm.map(r=>r[k]/mx)}));}
+    if(o.kind==='rec')curves=o.rec.map(r=>({c:r.c,v:Array.from(r.sens)}));
+    if(o.kind==='meso')curves.push({c:'#cccccc',v:Array.from(OBSBY.rods.rec[0].sens)});
+    c.lineWidth=oi?1.6:2;c.setLineDash(oi?[5,3]:[]);
+    curves.forEach(cu=>{c.strokeStyle=cu.c;c.beginPath();cu.v.forEach((v,i)=>{const y=y1-clamp(v,0,1.05)*(y1-y0);i?c.lineTo(X(i),y):c.moveTo(X(i),y);});c.stroke();});
+  });
+  c.setLineDash([]);c.fillStyle='#8d95a6';c.textAlign='left';c.fillText(ids.length>1?'solid = A, dashed = B':'relative sensitivity',x0+30,y0+10);
+}
+function observerChanged(){syncObsUI();updateBarCols();drawObsPlot();lightChanged(false);}
+(function buildObs(){
+  for(const id of['obsA','obsB']){const sel1=$(id),groups={};
+    OBS.forEach(o=>{(groups[o.group]=groups[o.group]||[]).push(o);});
+    for(const g in groups){const og=document.createElement('optgroup');og.label=g;groups[g].forEach(o=>{const op=document.createElement('option');op.value=o.id;op.textContent=o.name;og.appendChild(op);});sel1.appendChild(og);}}
+})();
+$('obsA').addEventListener('change',e=>{state.obs[0]=e.target.value;observerChanged();});
+$('obsB').addEventListener('change',e=>{state.obs[1]=e.target.value;observerChanged();});
+$('rod').addEventListener('input',e=>{state.rod=+e.target.value/100;$('rodO').textContent=e.target.value+'%';updateBarCols();lightChanged(true);});
+$('cmpMode').addEventListener('change',e=>{state.cmpMode=e.target.value;if(state.cmpMode==='obs'){state.cmp=true;$('cmp').checked=true;state.active=0;syncLightUI();}observerChanged();});
+
 const DEMOS=[
- {n:'Choose a scenario…',note:'Each demo loads two lights and turns on the split view (A on the left, B on the right).'},
- {n:'Metamerism: pure yellow vs red + green',A:'yellow',B:'rg',adapt:0,note:'A single 580 nm line and a mix of 540 + 630 nm lines look the same yellow to the eye. But look at the shelf chips: the red, green and orange chips respond differently, and anything blue or violet goes nearly black in both because neither light contains short wavelengths.'},
- {n:'Colour temperature: daylight vs incandescent',A:'d65',B:'incand',adapt:0,note:'Same room, 6500 K versus 2856 K. Turn up “Eye adaptation” and the white card drifts back toward neutral, which is what your visual system does. Use the grey and white cards as the reference.'},
- {n:'Poor colour rendering: daylight vs fluorescent',A:'d65',B:'cfl',adapt:0,note:'The fluorescent tube has a similar chromaticity to a white light but a spiky spectrum. Compare the eight test patches on the right wall, and the Twin A / Twin B cubes on the shelf: identical in daylight, visibly different under the tube.'},
- {n:'CRI: 4000 K blackbody vs cool-white LED',A:'bb',B:'ledc',T:4000,adapt:0,note:'A blackbody has Ra = 100 by definition. The phosphor LED has a notch in the cyan and a weak deep red, so saturated reds look duller. Check the R1–R8 chips.'},
- {n:'Magenta light vs daylight',A:'magenta',B:'d65',adapt:0,note:'Magenta has no spectral wavelength of its own, it is blue and red lines with no green. Green things turn nearly black, and the white card looks magenta.'},
- {n:'RGB LED vs daylight',A:'rgbled',B:'d65',adapt:0,note:'Three narrow bands can produce a convincing white, but pigments with narrow features (like the cyan and violet chips) fall between the bands and look wrong.'},
- {n:'Red light only vs blue light only',A:'red',B:'blue',adapt:0,note:'Monochromatic light can only show brightness differences: under red, red pigments look bright and blue ones black; under blue it is the reverse. Colours outside the sRGB triangle are clipped.'},
+ {n:'Choose a scenario…',note:'Each demo loads a light, an observer and the split view (left half = A, right half = B). The scene resets to the default camera.'},
+ {n:'Metamerism: pure yellow vs red + green',A:'yellow',B:'rg',note:'A single 580 nm line and a mix of 540 + 630 nm lines look like the same yellow to the eye. But look at the shelf chips: the red, green and orange chips respond differently, and anything blue or violet goes nearly black in both because neither light contains short wavelengths.'},
+ {n:'Colour temperature: daylight vs incandescent',A:'d65',B:'incand',note:'Same room, 6500 K versus 2856 K. Turn up “Eye adaptation” and the white card drifts back toward neutral, which is what your visual system does. Use the grey and white cards as the reference.'},
+ {n:'Poor colour rendering: daylight vs fluorescent',A:'d65',B:'cfl',note:'The tri-phosphor tube is a similar white but has a spiky spectrum (Ra ≈ 80, with R3 as low as 50). Compare the eight test patches on the right wall, and the Twin A / Twin B cubes on the shelf: identical in daylight, visibly different under the tube.'},
+ {n:'CRI: 4000 K blackbody vs cool-white LED',A:'bb',B:'ledc',T:4000,note:'A blackbody has Ra = 100 by definition. The phosphor LED has a notch in the cyan and a weak deep red, so saturated reds look duller. Check the R1–R8 chips.'},
+ {n:'Magenta light vs daylight',A:'magenta',B:'d65',note:'Magenta has no spectral wavelength of its own: it is blue and red lines with no green. Green things turn nearly black, and the white card looks magenta.'},
+ {n:'RGB LED (balanced white) vs daylight',A:'rgbled',B:'d65',note:'Three narrow LEDs are balanced here to the same chromaticity as daylight (CCT ≈ 6500 K) so the white card matches, yet Ra is only about 26. Pigments with broad or in-between reflectance, like the cyan, green-yellow and violet chips, come out wrong. Try the warm RGB preset: Ra ≈ 5.'},
+ {n:'Deep red and violet lights (exposure test)',A:'deepred',B:'violet',note:'700 nm and 405 nm lights have almost no luminance. Auto-exposure matches luminance but caps the brightest channel, so they stay dim and detailed instead of blowing out. Untick “Auto-exposure” to see the raw energy instead.'},
+ {n:'Dog vs human: red and green',A:'d65',B:'d65',obs:['cie31','dog'],mode:'obs',cam:true,note:'Same daylight, two observers. A dog’s two cones (≈429 and 555 nm) cannot separate red from green: compare the apple, the green cone, the shelf chips and the rug.'},
+ {n:'Deuteranope vs typical vision',A:'d65',B:'d65',obs:['cie31','deutan'],mode:'obs',cam:true,note:'Red–green colour blindness under daylight. Compare the shelf chips and the eight test patches on the right wall. The Twin cubes stay matched for both.'},
+ {n:'2° vs 10° observer under narrow-band LEDs',A:'rgbled',B:'rgbled',obs:['cie31','cie64'],mode:'obs',cam:true,note:'Observer metamerism: the same light and the same pigments give different colours for the 2° and 10° standard observers, most visibly with narrow-band lights. Try the fluorescent or mercury presets in the light selector too.'},
+ {n:'Bird vs human: the hidden UV flower',A:'d65',B:'d65',obs:['cie31','bird'],mode:'obs',cam:true,note:'The yellow panel on the back wall (above the shelf) is one plain yellow to a person, but its rings differ in UV reflectance. Left half = human, right half = songbird: the bird sees a bullseye. Drag the divider to compare.'},
+ {n:'UV removed: the bird loses the bullseye',A:'d65',B:'d65nouv',obs:['bird','bird'],mode:'light',cam:true,note:'Both halves show the songbird. The right side is lit by daylight with everything below 400 nm filtered out (like light through window glass): the bullseye vanishes and the white card looks greenish to the bird until you raise Eye adaptation.'},
+ {n:'Honeybee vs human: UV flower',A:'d65',B:'d65',obs:['cie31','bee'],mode:'obs',cam:true,note:'Bee false-colour (bee-UV → blue, bee-blue → green, bee-green → red). The bee’s strong UV channel makes the bullseye and the dark UV-absorbing ceiling obvious.'},
+ {n:'Blacklight (UV-A): human vs bird',A:'uva',B:'uva',obs:['cie31','bird'],mode:'obs',cam:true,note:'A 365 nm lamp with a slight violet leak. People see a dim violet room (no fluorescence is modelled); a bird’s UV cone is fully stimulated and shows which surfaces reflect UV.'},
+ {n:'Rods vs cones under deep red light',A:'red',B:'red',obs:['cie31','rods'],mode:'obs',cam:true,note:'Rods are nearly blind to long wavelengths, which is why red light preserves night vision: the rods-only half goes almost black while cones see a red room.'},
+ {n:'Dusk: Purkinje shift (cones + rods)',A:'d65',B:'d65',obs:['cie31','meso'],mode:'obs',rod:.85,cam:true,note:'As rods take over (Rod share slider) colours fade and reds darken faster than blues and greens. Compare the red apple and rug with the blue cube and torus.'},
 ];
 DEMOS.forEach((d,i)=>{const o=document.createElement('option');o.value=i;o.textContent=d.n;$('demo').appendChild(o);});
 $('demo').addEventListener('change',e=>{const d=DEMOS[+e.target.value];$('demoNote').textContent=d.note;if(!d.A)return;
   setPreset(0,d.A,d.T);setPreset(1,d.B,d.T);lights[0].gain=lights[1].gain=1;
   state.cmp=true;$('cmp').checked=true;state.adapt=d.adapt||0;$('adapt').value=state.adapt;$('adaptO').textContent=state.adapt+'%';
-  state.active=0;syncLightUI();lightChanged(false);});
+  state.obs=d.obs?d.obs.slice():['cie31','cie31'];state.cmpMode=d.mode||'light';
+  state.rod=d.rod!=null?d.rod:.5;$('rod').value=Math.round(state.rod*100);$('rodO').textContent=Math.round(state.rod*100)+'%';
+  if(d.cam){split=.5;Object.assign(cam,{yaw:0,pitch:.12,dist:4.8});}
+  state.active=0;syncLightUI();observerChanged();});
 $('demoNote').textContent=DEMOS[0].note;
 
-window.addEventListener('resize',()=>{drawSpec();drawCIE();drawInsp();requestRender(false);});
+window.addEventListener('resize',()=>{drawSpec();drawCIE();drawInsp();drawObsPlot();requestRender(false);});
 new ResizeObserver(()=>requestRender(false)).observe(stage);
 
 /* ---------- start ---------- */
 try{
   if(initGL()){
     $('lx').value=lightPos[0];$('ly').value=lightPos[1];$('lz').value=lightPos[2];
-    syncLightUI();updateTags();rebuildColors();drawSpec();updateInfo();drawInsp();render(false);requestRender(false);
-  }else{drawSpec();updateInfo();}
+    syncLightUI();syncObsUI();updateBarCols();drawObsPlot();updateTags();rebuildColors();drawSpec();updateInfo();drawInsp();render(false);requestRender(false);
+  }else{updateBarCols();drawSpec();updateInfo();}
 }catch(err){console.error(err);}
 </script>
 </body>

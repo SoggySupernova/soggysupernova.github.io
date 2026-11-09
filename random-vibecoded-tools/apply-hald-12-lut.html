@@ -1,179 +1,261 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Simple Hald LUT Applier</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hald CLUT 12 Applier</title>
 </head>
 <body>
-    <h1>Hald LUT Applier</h1>
-    
-    <div>
-        <label>1. Upload Target Image: </label>
-        <input type="file" id="imageInput" accept="image/*"><br><br>
-        
-        <label>2. Upload Hald LUT Image: </label>
-        <input type="file" id="lutInput" accept="image/*"><br><br>
-        
-        <button id="processBtn">Apply LUT</button>
-        <a id="downloadLink" style="display:none;"><button>Download Result</button></a>
-    </div>
+<h1>Hald CLUT 12 Applier</h1>
 
-    <br>
-    <div style="display: flex; gap: 20px;">
-        <div>
-            <h3>Original / Result</h3>
-            <canvas id="canvas"></canvas>
-        </div>
-    </div>
+<p>
+  <label>Image: <input id="imageFile" type="file" accept="image/*"></label>
+</p>
+<p>
+  <label>Hald CLUT (1728 × 1728): <input id="lutFile" type="file" accept="image/*"></label>
+</p>
+<p><button id="apply" disabled>Apply LUT</button></p>
+<p id="status">Choose an image and a Hald CLUT.</p>
+<canvas id="output"></canvas>
+<p><a id="download" hidden download="lut-result.png">Download result</a></p>
 
-    <script>
-        const imageInput = document.getElementById('imageInput');
-        const lutInput = document.getElementById('lutInput');
-        const processBtn = document.getElementById('processBtn');
-        const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
-        const downloadLink = document.getElementById('downloadLink');
+<script>
+"use strict";
 
-        let targetImage = null;
-        let lutImage = null;
+const imageInput = document.getElementById("imageFile");
+const lutInput = document.getElementById("lutFile");
+const applyButton = document.getElementById("apply");
+const status = document.getElementById("status");
+const canvas = document.getElementById("output");
+const download = document.getElementById("download");
 
-        imageInput.addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = (event) => {
-                const img = new Image();
-                img.onload = () => {
-                    targetImage = img;
-                    canvas.width = img.width;
-                    canvas.height = img.height;
-                    ctx.drawImage(img, 0, 0);
-                };
-                img.src = event.target.result;
-            };
-            reader.readAsDataURL(file);
-        });
+let sourceImage = null;
+let lutImage = null;
 
-        lutInput.addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = (event) => {
-                const img = new Image();
-                img.onload = () => { lutImage = img; };
-                img.src = event.target.result;
-            };
-            reader.readAsDataURL(file);
-        });
+function loadImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(img);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Could not decode the selected image."));
+    };
+    img.src = url;
+  });
+}
 
-        processBtn.addEventListener('click', () => {
-            if (!targetImage || !lutImage) {
-                alert('Please upload both a target image and a Hald LUT image.');
-                return;
-            }
+imageInput.addEventListener("change", async () => {
+  sourceImage = null;
+  download.hidden = true;
+  try {
+    if (imageInput.files[0]) sourceImage = await loadImage(imageInput.files[0]);
+    updateReadyState();
+  } catch (error) {
+    status.textContent = error.message;
+  }
+});
 
-            // 1. Extract LUT Data
-            const lutWidth = lutImage.width;
-            const lutCanvas = document.createElement('canvas');
-            lutCanvas.width = lutWidth;
-            lutCanvas.height = lutImage.height;
-            const lutCtx = lutCanvas.getContext('2d');
-            lutCtx.drawImage(lutImage, 0, 0);
-            const lutData = lutCtx.getImageData(0, 0, lutWidth, lutImage.height).data;
+lutInput.addEventListener("change", async () => {
+  lutImage = null;
+  download.hidden = true;
+  try {
+    if (lutInput.files[0]) {
+      const img = await loadImage(lutInput.files[0]);
+      if (img.naturalWidth !== 1728 || img.naturalHeight !== 1728) {
+        throw new Error("The Hald CLUT must be exactly 1728 × 1728 pixels (level 12).");
+      }
+      lutImage = img;
+    }
+    updateReadyState();
+  } catch (error) {
+    status.textContent = error.message;
+  }
+});
 
-            // Automatically deduce LUT size (cube dimension N)
-            // For a standard square Hald identity CLUT, width = N * sqrt(N) -> N = round(width^(2/3))
-            const cubeSize = Math.round(Math.pow(lutWidth, 2 / 3));
-            const sqrtSize = Math.sqrt(cubeSize);
+function updateReadyState() {
+  applyButton.disabled = !(sourceImage && lutImage);
+  if (applyButton.disabled) {
+    status.textContent = "Choose an image and a 1728 × 1728 Hald CLUT.";
+  } else {
+    status.textContent = `Ready: ${sourceImage.naturalWidth} × ${sourceImage.naturalHeight} image.`;
+  }
+}
 
-            // Helper to sample a pixel from the LUT image data at discrete (r, g, b) indices
-            function getLutPixel(r, g, b) {
-                // Ensure bounds
-                r = Math.max(0, Math.min(cubeSize - 1, r));
-                g = Math.max(0, Math.min(cubeSize - 1, g));
-                b = Math.max(0, Math.min(cubeSize - 1, b));
+const vertexShaderSource = `
+attribute vec2 position;
+attribute vec2 texCoord;
+varying vec2 uv;
+void main() {
+  gl_Position = vec4(position, 0.0, 1.0);
+  uv = texCoord;
+}`;
 
-                const blockX = b % sqrtSize;
-                const blockY = Math.floor(b / sqrtSize);
+const fragmentShaderSource = `
+precision highp float;
+varying vec2 uv;
+uniform sampler2D imageTexture;
+uniform sampler2D lutTexture;
 
-                const x = blockX * cubeSize + r;
-                const y = blockY * cubeSize + g;
+const float GRID = 144.0;
+const float LUT_WIDTH = 1728.0;
 
-                const idx = (y * lutWidth + x) * 4;
-                return [lutData[idx], lutData[idx + 1], lutData[idx + 2]];
-            }
+// Hald layout: flatten the 144³ RGB cube with red changing fastest,
+// then green, then blue, and wrap that linear index across the 1728px image.
+vec3 lutPoint(vec3 index) {
+  float linearIndex = index.b * GRID * GRID + index.g * GRID + index.r;
+  float x = mod(linearIndex, LUT_WIDTH);
+  float y = floor(linearIndex / LUT_WIDTH);
+  vec2 lutUV = vec2((x + 0.5) / LUT_WIDTH,
+                    1.0 - (y + 0.5) / LUT_WIDTH);
+  return texture2D(lutTexture, lutUV).rgb;
+}
 
-            // Trilinear interpolation function
-            function sampleLUT(r, g, b) {
-                // Scale 0-255 to 0-(cubeSize-1)
-                const rPos = (r / 255) * (cubeSize - 1);
-                const gPos = (g / 255) * (cubeSize - 1);
-                const bPos = (b / 255) * (cubeSize - 1);
+vec3 sampleLut(vec3 color) {
+  vec3 coord = clamp(color, 0.0, 1.0) * (GRID - 1.0);
+  vec3 lo = floor(coord);
+  vec3 hi = min(lo + 1.0, vec3(GRID - 1.0));
+  vec3 f = fract(coord);
 
-                const r0 = Math.floor(rPos);
-                const r1 = Math.min(cubeSize - 1, r0 + 1);
-                const g0 = Math.floor(gPos);
-                const g1 = Math.min(cubeSize - 1, g0 + 1);
-                const b0 = Math.floor(bPos);
-                const b1 = Math.min(cubeSize - 1, b0 + 1);
+  vec3 c000 = lutPoint(vec3(lo.r, lo.g, lo.b));
+  vec3 c100 = lutPoint(vec3(hi.r, lo.g, lo.b));
+  vec3 c010 = lutPoint(vec3(lo.r, hi.g, lo.b));
+  vec3 c110 = lutPoint(vec3(hi.r, hi.g, lo.b));
+  vec3 c001 = lutPoint(vec3(lo.r, lo.g, hi.b));
+  vec3 c101 = lutPoint(vec3(hi.r, lo.g, hi.b));
+  vec3 c011 = lutPoint(vec3(lo.r, hi.g, hi.b));
+  vec3 c111 = lutPoint(vec3(hi.r, hi.g, hi.b));
 
-                const rWeight = rPos - r0;
-                const gWeight = gPos - g0;
-                const bWeight = bPos - b0;
+  vec3 c00 = mix(c000, c100, f.r);
+  vec3 c10 = mix(c010, c110, f.r);
+  vec3 c01 = mix(c001, c101, f.r);
+  vec3 c11 = mix(c011, c111, f.r);
+  return mix(mix(c00, c10, f.g), mix(c01, c11, f.g), f.b);
+}
 
-                // Read 8 surrounding corners
-                const c000 = getLutPixel(r0, g0, b0);
-                const c100 = getLutPixel(r1, g0, b0);
-                const c010 = getLutPixel(r0, g1, b0);
-                const c110 = getLutPixel(r1, g1, b0);
-                const c001 = getLutPixel(r0, g0, b1);
-                const c101 = getLutPixel(r1, g0, b1);
-                const c011 = getLutPixel(r0, g1, b1);
-                const c111 = getLutPixel(r1, g1, b1);
+void main() {
+  vec3 source = texture2D(imageTexture, uv).rgb;
+  gl_FragColor = vec4(sampleLut(source), 1.0);
+}`;
 
-                // Interpolate along R
-                const c00 = [c000[0] * (1 - rWeight) + c100[0] * rWeight, c000[1] * (1 - rWeight) + c100[1] * rWeight, c000[2] * (1 - rWeight) + c100[2] * rWeight];
-                const c10 = [c010[0] * (1 - rWeight) + c110[0] * rWeight, c010[1] * (1 - rWeight) + c110[1] * rWeight, c010[2] * (1 - rWeight) + c110[2] * rWeight];
-                const c01 = [c001[0] * (1 - rWeight) + c101[0] * rWeight, c001[1] * (1 - rWeight) + c101[1] * rWeight, c001[2] * (1 - rWeight) + c101[2] * rWeight];
-                const c11 = [c011[0] * (1 - rWeight) + c111[0] * rWeight, c011[1] * (1 - rWeight) + c111[1] * rWeight, c011[2] * (1 - rWeight) + c111[2] * rWeight];
+function createShader(gl, type, source) {
+  const shader = gl.createShader(type);
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    const message = gl.getShaderInfoLog(shader);
+    gl.deleteShader(shader);
+    throw new Error("Shader compilation failed: " + message);
+  }
+  return shader;
+}
 
-                // Interpolate along G
-                const c0 = [c00[0] * (1 - gWeight) + c10[0] * gWeight, c00[1] * (1 - gWeight) + c10[1] * gWeight, c00[2] * (1 - gWeight) + c10[2] * gWeight];
-                const c1 = [c01[0] * (1 - gWeight) + c11[0] * gWeight, c01[1] * (1 - gWeight) + c11[1] * gWeight, c01[2] * (1 - gWeight) + c11[2] * gWeight];
+function createProgram(gl) {
+  const program = gl.createProgram();
+  gl.attachShader(program, createShader(gl, gl.VERTEX_SHADER, vertexShaderSource));
+  gl.attachShader(program, createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource));
+  gl.linkProgram(program);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    throw new Error("WebGL program link failed: " + gl.getProgramInfoLog(program));
+  }
+  return program;
+}
 
-                // Interpolate along B
-                const rgb = [c0[0] * (1 - bWeight) + c1[0] * bWeight, c0[1] * (1 - bWeight) + c1[1] * bWeight, c0[2] * (1 - bWeight) + c1[2] * bWeight];
+function makeTexture(gl, unit, image) {
+  const texture = gl.createTexture();
+  gl.activeTexture(gl.TEXTURE0 + unit);
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+  gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+  return texture;
+}
 
-                return rgb;
-            }
+applyButton.addEventListener("click", () => {
+  if (!sourceImage || !lutImage) return;
 
-            // 2. Process Target Image
-            canvas.width = targetImage.width;
-            canvas.height = targetImage.height;
-            ctx.drawImage(targetImage, 0, 0);
-            
-            const imgDataObj = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            const data = imgDataObj.data;
+  applyButton.disabled = true;
+  download.hidden = true;
+  status.textContent = "Processing…";
 
-            for (let i = 0; i < data.length; i += 4) {
-                const r = data[i];
-                const g = data[i + 1];
-                const b = data[i + 2];
+  // Defer work by one frame so the status update is painted before rendering.
+  requestAnimationFrame(() => {
+    try {
+      const gl = canvas.getContext("webgl", {
+        alpha: false,
+        antialias: false,
+        depth: false,
+        stencil: false,
+        preserveDrawingBuffer: true,
+        premultipliedAlpha: false
+      });
+      if (!gl) throw new Error("WebGL is not available in this browser.");
 
-                const color = sampleLUT(r, g, b);
+      const width = sourceImage.naturalWidth;
+      const height = sourceImage.naturalHeight;
+      const maxSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+      if (width > maxSize || height > maxSize) {
+        throw new Error(`Image exceeds this device's WebGL texture limit (${maxSize}px).`);
+      }
 
-                data[i] = color[0];
-                data[i + 1] = color[1];
-                data[i + 2] = color[2];
-            }
+      canvas.width = width;
+      canvas.height = height;
+      gl.viewport(0, 0, width, height);
 
-            ctx.putImageData(imgDataObj, 0, 0);
+      const program = createProgram(gl);
+      gl.useProgram(program);
 
-            // 3. Setup Download Link
-            downloadLink.href = canvas.toDataURL('image/png');
-            downloadLink.download = 'lut_applied_result.png';
-            downloadLink.style.display = 'inline-block';
-        });
-    </script>
+      // Two triangles covering the canvas. UVs account for the WebGL bottom-left origin.
+      const vertices = new Float32Array([
+        -1, -1, 0, 0,
+         1, -1, 1, 0,
+        -1,  1, 0, 1,
+        -1,  1, 0, 1,
+         1, -1, 1, 0,
+         1,  1, 1, 1
+      ]);
+      const buffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+      gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+
+      const stride = 4 * Float32Array.BYTES_PER_ELEMENT;
+      const positionLocation = gl.getAttribLocation(program, "position");
+      const uvLocation = gl.getAttribLocation(program, "texCoord");
+      gl.enableVertexAttribArray(positionLocation);
+      gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, stride, 0);
+      gl.enableVertexAttribArray(uvLocation);
+      gl.vertexAttribPointer(uvLocation, 2, gl.FLOAT, false, stride, 2 * Float32Array.BYTES_PER_ELEMENT);
+
+      makeTexture(gl, 0, sourceImage);
+      makeTexture(gl, 1, lutImage);
+      gl.uniform1i(gl.getUniformLocation(program, "imageTexture"), 0);
+      gl.uniform1i(gl.getUniformLocation(program, "lutTexture"), 1);
+
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+      gl.finish();
+
+      const error = gl.getError();
+      if (error !== gl.NO_ERROR) {
+        throw new Error("WebGL rendering failed (error " + error + ").");
+      }
+
+      download.href = canvas.toDataURL("image/png");
+      download.hidden = false;
+      status.textContent = `Done. Output: ${width} × ${height}.`;
+    } catch (error) {
+      status.textContent = error.message;
+    } finally {
+      applyButton.disabled = false;
+    }
+  });
+});
+</script>
 </body>
 </html>

@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Simple Hald LUT Applier</title>
+</head>
+<body>
+    <h1>Hald LUT Applier</h1>
+    
+    <div>
+        <label>1. Upload Target Image: </label>
+        <input type="file" id="imageInput" accept="image/*"><br><br>
+        
+        <label>2. Upload Hald LUT Image: </label>
+        <input type="file" id="lutInput" accept="image/*"><br><br>
+        
+        <button id="processBtn">Apply LUT</button>
+        <a id="downloadLink" style="display:none;"><button>Download Result</button></a>
+    </div>
+
+    <br>
+    <div style="display: flex; gap: 20px;">
+        <div>
+            <h3>Original / Result</h3>
+            <canvas id="canvas"></canvas>
+        </div>
+    </div>
+
+    <script>
+        const imageInput = document.getElementById('imageInput');
+        const lutInput = document.getElementById('lutInput');
+        const processBtn = document.getElementById('processBtn');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        const downloadLink = document.getElementById('downloadLink');
+
+        let targetImage = null;
+        let lutImage = null;
+
+        imageInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = new Image();
+                img.onload = () => {
+                    targetImage = img;
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    ctx.drawImage(img, 0, 0);
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+
+        lutInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = new Image();
+                img.onload = () => { lutImage = img; };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+
+        processBtn.addEventListener('click', () => {
+            if (!targetImage || !lutImage) {
+                alert('Please upload both a target image and a Hald LUT image.');
+                return;
+            }
+
+            // 1. Extract LUT Data
+            const lutWidth = lutImage.width;
+            const lutCanvas = document.createElement('canvas');
+            lutCanvas.width = lutWidth;
+            lutCanvas.height = lutImage.height;
+            const lutCtx = lutCanvas.getContext('2d');
+            lutCtx.drawImage(lutImage, 0, 0);
+            const lutData = lutCtx.getImageData(0, 0, lutWidth, lutImage.height).data;
+
+            // Automatically deduce LUT size (cube dimension N)
+            // For a standard square Hald identity CLUT, width = N * sqrt(N) -> N = round(width^(2/3))
+            const cubeSize = Math.round(Math.pow(lutWidth, 2 / 3));
+            const sqrtSize = Math.sqrt(cubeSize);
+
+            // Helper to sample a pixel from the LUT image data at discrete (r, g, b) indices
+            function getLutPixel(r, g, b) {
+                // Ensure bounds
+                r = Math.max(0, Math.min(cubeSize - 1, r));
+                g = Math.max(0, Math.min(cubeSize - 1, g));
+                b = Math.max(0, Math.min(cubeSize - 1, b));
+
+                const blockX = b % sqrtSize;
+                const blockY = Math.floor(b / sqrtSize);
+
+                const x = blockX * cubeSize + r;
+                const y = blockY * cubeSize + g;
+
+                const idx = (y * lutWidth + x) * 4;
+                return [lutData[idx], lutData[idx + 1], lutData[idx + 2]];
+            }
+
+            // Trilinear interpolation function
+            function sampleLUT(r, g, b) {
+                // Scale 0-255 to 0-(cubeSize-1)
+                const rPos = (r / 255) * (cubeSize - 1);
+                const gPos = (g / 255) * (cubeSize - 1);
+                const bPos = (b / 255) * (cubeSize - 1);
+
+                const r0 = Math.floor(rPos);
+                const r1 = Math.min(cubeSize - 1, r0 + 1);
+                const g0 = Math.floor(gPos);
+                const g1 = Math.min(cubeSize - 1, g0 + 1);
+                const b0 = Math.floor(bPos);
+                const b1 = Math.min(cubeSize - 1, b0 + 1);
+
+                const rWeight = rPos - r0;
+                const gWeight = gPos - g0;
+                const bWeight = bPos - b0;
+
+                // Read 8 surrounding corners
+                const c000 = getLutPixel(r0, g0, b0);
+                const c100 = getLutPixel(r1, g0, b0);
+                const c010 = getLutPixel(r0, g1, b0);
+                const c110 = getLutPixel(r1, g1, b0);
+                const c001 = getLutPixel(r0, g0, b1);
+                const c101 = getLutPixel(r1, g0, b1);
+                const c011 = getLutPixel(r0, g1, b1);
+                const c111 = getLutPixel(r1, g1, b1);
+
+                // Interpolate along R
+                const c00 = [c000[0] * (1 - rWeight) + c100[0] * rWeight, c000[1] * (1 - rWeight) + c100[1] * rWeight, c000[2] * (1 - rWeight) + c100[2] * rWeight];
+                const c10 = [c010[0] * (1 - rWeight) + c110[0] * rWeight, c010[1] * (1 - rWeight) + c110[1] * rWeight, c010[2] * (1 - rWeight) + c110[2] * rWeight];
+                const c01 = [c001[0] * (1 - rWeight) + c101[0] * rWeight, c001[1] * (1 - rWeight) + c101[1] * rWeight, c001[2] * (1 - rWeight) + c101[2] * rWeight];
+                const c11 = [c011[0] * (1 - rWeight) + c111[0] * rWeight, c011[1] * (1 - rWeight) + c111[1] * rWeight, c011[2] * (1 - rWeight) + c111[2] * rWeight];
+
+                // Interpolate along G
+                const c0 = [c00[0] * (1 - gWeight) + c10[0] * gWeight, c00[1] * (1 - gWeight) + c10[1] * gWeight, c00[2] * (1 - gWeight) + c10[2] * gWeight];
+                const c1 = [c01[0] * (1 - gWeight) + c11[0] * gWeight, c01[1] * (1 - gWeight) + c11[1] * gWeight, c01[2] * (1 - gWeight) + c11[2] * gWeight];
+
+                // Interpolate along B
+                const rgb = [c0[0] * (1 - bWeight) + c1[0] * bWeight, c0[1] * (1 - bWeight) + c1[1] * bWeight, c0[2] * (1 - bWeight) + c1[2] * bWeight];
+
+                return rgb;
+            }
+
+            // 2. Process Target Image
+            canvas.width = targetImage.width;
+            canvas.height = targetImage.height;
+            ctx.drawImage(targetImage, 0, 0);
+            
+            const imgDataObj = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imgDataObj.data;
+
+            for (let i = 0; i < data.length; i += 4) {
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+
+                const color = sampleLUT(r, g, b);
+
+                data[i] = color[0];
+                data[i + 1] = color[1];
+                data[i + 2] = color[2];
+            }
+
+            ctx.putImageData(imgDataObj, 0, 0);
+
+            // 3. Setup Download Link
+            downloadLink.href = canvas.toDataURL('image/png');
+            downloadLink.download = 'lut_applied_result.png';
+            downloadLink.style.display = 'inline-block';
+        });
+    </script>
+</body>
+</html>
